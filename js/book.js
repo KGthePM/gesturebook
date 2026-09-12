@@ -3,8 +3,6 @@
  * Exposes a drag API so gestures can steer the flip: beginDrag(dir) → dragTo(p) → commit/cancel.
  */
 
-const MAX_READ_ZOOM = 3;   // single-mode zoom ceiling (1 = fit page)
-
 export class Book {
   constructor({ bookEl, leftCanvas, rightCanvas, flipLayer, onSpreadChange }) {
     this.bookEl = bookEl;
@@ -18,11 +16,9 @@ export class Book {
     this.zoom = 1;
     this._flip = null;
     this._finish = null;
-    this.readMode = "book";     // "book" | "single"
-    this.page = 1;              // 1-based page in single mode
-    this.readZoom = 1;          // single-mode zoom level (1 = fit)
-    this.readX = 0;             // pan offsets (px, page-box units at zoom)
-    this.readY = 0;
+    this.readMode = "book";     // "book" | "single" | "half"
+    this.page = 1;              // 1-based page in single/half mode
+    this.readY = 0;             // half-mode vertical scroll offset (px)
     this._slide = null;
     this._slideDir = null;
     this._slideFrom = 0;
@@ -30,16 +26,15 @@ export class Book {
 
   /* ---------- v3: single-page read mode ---------- */
 
-  get isSingle() { return this.readMode === "single"; }
+  get isSingle() { return this.readMode !== "book"; }
+  get isHalf() { return this.readMode === "half"; }
 
   setReadMode(mode) {
     if (mode === this.readMode || !this.pdfDoc) return;
     if (this.busy) return;
+    const prevMode = this.readMode;
     this.readMode = mode;
-    if (mode === "single") {
-      this.page = Math.min(this.spread + 1, this.numPages);
-      this._resetReadView();
-    } else {
+    if (mode === "book") {
       // return to book view: put the spread on the same page the reader left off
       this.spread = Math.max(0, Math.min(this.page - 1, this.numPages - 2));
       this.page = 0;
@@ -51,17 +46,20 @@ export class Book {
       });
       return;
     }
+    if (prevMode === "book") this.page = Math.min(this.spread + 1, this.numPages);
+    this._resetReadView();
     this._applySingle(true);
-    this.renderPage(this.page, this.rightCanvas, ...Object.values(this.pageBox()))
+    this.renderCurrentPage()
       .then(() => { this.busy = false; if (this.onSpreadChange) this.onSpreadChange(this.spread, this.numPages); });
   }
 
   _resetReadView() {
-    this.readZoom = 1; this.readX = 0; this.readY = 0;
+    this.readY = 0;
   }
 
   _applySingle(on) {
     document.documentElement.classList.toggle("single-mode", !!on);
+    document.documentElement.classList.toggle("half-mode", !!on && this.isHalf);
     if (on) this._applyReadTransform();
     else this._clearReadTransform();
   }
@@ -71,29 +69,42 @@ export class Book {
   }
 
   _applyReadTransform() {
-    const { w, h } = this.pageBox();
-    const maxX = Math.max(0, (w * this.readZoom - w) / 2);
-    const maxY = Math.max(0, (h * this.readZoom - h) / 2);
-    const px = Math.max(-maxX, Math.min(maxX, this.readX));
-    const py = Math.max(-maxY, Math.min(maxY, this.readY));
-    this.readX = px; this.readY = py;
-    this.rightCanvas.style.transform =
-      `translate(${px}px, ${py}px) scale(${this.readZoom})`;
+    if (!this.isHalf) { this._clearReadTransform(); return; }
+    const box = this.pageBox();
+    const maxY = Math.max(0, this.rightCanvas.offsetHeight - box.h);
+    this.readY = Math.max(-maxY, Math.min(0, this.readY));
+    this.rightCanvas.style.transform = `translateY(${this.readY}px)`;
   }
 
-  /* Continuous two-hand zoom: factor > 1 zooms in. Clamped to [1, MAX_READ_ZOOM]. */
-  setReadZoom(factor) {
-    const z = Math.max(1, Math.min(MAX_READ_ZOOM, factor));
-    if (z === this.readZoom) return;
-    // keep the pan clamped as we zoom out (content shrinks back toward fit)
-    this.readZoom = z;
+  /* Vertical scroll by pixels of pinch-hand movement (half mode only). */
+  readPan(dy) {
+    this.readY += dy;
     this._applyReadTransform();
   }
 
-  /* Pan by pixels of hand movement mapped through the current zoom. */
-  readPan(dx, dy) {
-    this.readX += dx;
-    this.readY += dy;
+  /* Keyboard scroll: dir -1 (up) / +1 (down), stepping ~90% of the visible box. */
+  scrollHalf(dir) {
+    if (!this.isHalf) return;
+    const step = this.pageBox().h * 0.9;
+    this.readY += dir < 0 ? step : -step;
+    this._applyReadTransform();
+  }
+
+  /* Box to render `pageNum` into for the current mode: fit-page normally,
+   * or fit-width-and-taller-than-the-box in half mode (so it overflows and
+   * scrolls) — unless the page is wide enough that fit-width already fits. */
+  async _boxFor(pageNum = this.page) {
+    const box = this.pageBox();
+    if (!this.isHalf) return box;
+    const page = await this.pdfDoc.getPage(pageNum);
+    const vp = page.getViewport({ scale: 1 });
+    const tallH = box.w * (vp.height / vp.width);
+    return tallH <= box.h ? box : { w: box.w, h: tallH };
+  }
+
+  async renderCurrentPage() {
+    const { w, h } = await this._boxFor();
+    await this.renderPage(this.page, this.rightCanvas, w, h);
     this._applyReadTransform();
   }
 
@@ -108,9 +119,7 @@ export class Book {
     this._cleanupFlip();
     this.busy = false;
     this._applySingle(this.isSingle);
-    return this.isSingle
-      ? this.renderPage(this.page, this.rightCanvas, ...Object.values(this.pageBox()))
-      : this.renderSpread();
+    return this.isSingle ? this.renderCurrentPage() : this.renderSpread();
   }
 
   pageBox() {
@@ -155,11 +164,10 @@ export class Book {
     if (this.onSpreadChange) this.onSpreadChange(this.spread, this.numPages);
   }
 
-  /* Mode-aware re-render for resize: single mode tracks `page`, not `spread`. */
+  /* Mode-aware re-render for resize: single/half mode tracks `page`, not `spread`. */
   async renderCurrent() {
     if (this.isSingle) {
-      await this.renderPage(this.page, this.rightCanvas, ...Object.values(this.pageBox()));
-      this._applyReadTransform();
+      await this.renderCurrentPage();
     } else {
       await this.renderSpread();
     }
@@ -217,7 +225,6 @@ export class Book {
   canDrag(dir) {
     if (!this.pdfDoc || this.busy) return false;
     if (this.isSingle) {
-      if (this.readZoom > 1.01) return false;   // zoomed: pinch-grab pans instead
       return dir === "forward" ? this.page < this.numPages : this.page > 1;
     }
     return dir === "forward" ? this.spread + 3 <= this.numPages : this.spread > 0;
@@ -265,7 +272,6 @@ export class Book {
 
   async _beginSlide(dir) {
     this.busy = true;
-    const { w, h } = this.pageBox();
     if (dir === "forward") {
       // clone current page to slide away; render the next page underneath
       const cur = this._cloneCanvas(this.rightCanvas);
@@ -273,11 +279,12 @@ export class Book {
       this._slideDir = "forward";
       this._slideFrom = this.page;
       this._slide.style.transform = "translateX(0)";
+      const { w, h } = await this._boxFor(this.page + 1);
       await this.renderPage(this.page + 1, this.rightCanvas, w, h);
-      this._applyReadTransform();
     } else {
       // previous page slides in from the left over the current one
       const prev = document.createElement("canvas");
+      const { w, h } = await this._boxFor(this.page - 1);
       await this.renderPage(this.page - 1, prev, w, h);
       this._slide = this._buildSlide(prev);
       this._slideDir = "backward";
@@ -308,14 +315,15 @@ export class Book {
       if (done) return;
       done = true;
       this.page = newPage;
+      this.readY = 0;    // arriving on a new page always lands at the top
       if (this._slideDir === "backward") {
         // the incoming page was only ever drawn on the slide's own throwaway
         // canvas — sync it onto rightCanvas before uncovering it, or the old
         // page's stale pixels show through once the slide is removed.
-        const { w, h } = this.pageBox();
+        const { w, h } = await this._boxFor(this.page);
         await this.renderPage(this.page, this.rightCanvas, w, h);
-        this._applyReadTransform();
       }
+      this._applyReadTransform();
       slide.remove();
       this._slide = null;
       this.busy = false;
@@ -367,7 +375,7 @@ export class Book {
         this._slide = null;
         if (this._slideDir === "forward") {
           // put the original page back on the main canvas
-          const { w, h } = this.pageBox();
+          const { w, h } = await this._boxFor(this._slideFrom);
           await this.renderPage(this._slideFrom, this.rightCanvas, w, h);
           this._applyReadTransform();
         }

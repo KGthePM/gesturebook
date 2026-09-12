@@ -343,6 +343,22 @@ html.single-mode .page {
 }
 html.single-mode .page.right { border-radius: 10px; }
 html.single-mode .page canvas { transition: none; }       /* pan/zoom is live, not eased */
+
+/* ---------- v4: half-page read mode (fit-width, scrolls vertically) ----------
+ * The box is sized independently of the page's own aspect ratio — width wide,
+ * height capped to a fraction of the viewport — so a fit-width render (done in
+ * book.js) comes out taller than the box and overflows, which is what makes
+ * scrolling possible. Keep aspect-ratio:auto here or the box reverts to a
+ * whole-page shape and there's nothing to scroll. */
+html.half-mode .page.right {
+  aspect-ratio: auto;
+  width: min(88vw, 140vh);
+  height: 78vh;
+}
+html.half-mode .page.right canvas,
+html.half-mode .slide-page canvas {
+  height: auto;    /* tall canvas keeps its intrinsic aspect; height:100% would squash it */
+}
 .slide-page {
   position: absolute; inset: 0; overflow: hidden; background: var(--paper);
   border-radius: 10px; z-index: 6;
@@ -460,10 +476,12 @@ html.single-mode .page canvas { transition: none; }       /* pan/zoom is live, n
 }
 #mode-fab:hover { transform: scale(1.06); border-color: rgba(255,255,255,0.2); }
 #mode-fab[aria-pressed="true"] { color: var(--accent); }
-#mode-fab .mf-icon-book { display: block; }
-#mode-fab .mf-icon-page { display: none; }
-#mode-fab[aria-pressed="true"] .mf-icon-book { display: none; }
-#mode-fab[aria-pressed="true"] .mf-icon-page { display: block; }
+#mode-fab .mf-icon-book,
+#mode-fab .mf-icon-page,
+#mode-fab .mf-icon-half { display: none; }
+#mode-fab[data-mode="book"] .mf-icon-book { display: block; }
+#mode-fab[data-mode="single"] .mf-icon-page { display: block; }
+#mode-fab[data-mode="half"] .mf-icon-half { display: block; }
 /* dwell progress ring: SVG circle sweep driven by --dwell 0→1 */
 #mode-fab .mf-progress {
   position: absolute; inset: 6px; width: auto; height: auto;

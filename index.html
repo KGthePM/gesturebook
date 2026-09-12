@@ -32,7 +32,7 @@
   <label class="btn quiet" for="pdf-file">Open PDF</label>
   <input type="file" id="pdf-file" accept="application/pdf" hidden>
   <button class="btn quiet" id="cam-toggle">Start camera</button>
-  <button class="btn quiet" id="mode-toggle" aria-pressed="false" title="Toggle single-page read view (or press S)">Read view</button>
+  <button class="btn quiet" id="mode-toggle" aria-pressed="false" title="Cycle Book / Read / Half-page view (or press S)">Read view</button>
   <div class="theme-picker" id="theme-picker" role="group" aria-label="Reading-room theme">
     <button class="theme-opt" data-set-theme="classic" aria-pressed="true" title="Classic charcoal">Classic</button>
     <button class="theme-opt" data-set-theme="seattle" aria-pressed="false" title="Seattle rain">Seattle</button>
@@ -89,7 +89,7 @@
 
 <div id="status-pill" aria-live="polite">Open a PDF to begin</div>
 
-<div id="hint">Pinch &amp; drag left · next page&nbsp;&nbsp;&nbsp;Pinch &amp; drag right · previous&nbsp;&nbsp;&nbsp;Quick swipe works too&nbsp;&nbsp;&nbsp;Open palm · controls&nbsp;&nbsp;&nbsp;S · read view&nbsp;&nbsp;&nbsp;← → keys work too</div>
+<div id="hint">Pinch &amp; drag left · next page&nbsp;&nbsp;&nbsp;Pinch &amp; drag right · previous&nbsp;&nbsp;&nbsp;Quick swipe works too&nbsp;&nbsp;&nbsp;Half-page: pinch to scroll&nbsp;&nbsp;&nbsp;Open palm · controls&nbsp;&nbsp;&nbsp;S · cycle view&nbsp;&nbsp;&nbsp;← → keys work too</div>
 
 <!-- video stays in DOM (gesture engine needs the stream) but is never shown -->
 <div id="cam-overlay" class="hidden" aria-hidden="true">
@@ -99,7 +99,7 @@
 <div id="hand-pointer" aria-hidden="true"><div class="hp-ring"></div></div>
 
 <!-- v3: floating mode toggle — the dwell target when reading with gestures -->
-<button id="mode-fab" class="hidden" aria-pressed="false" title="Pinch-hold ~2s to switch view (or press S)">
+<button id="mode-fab" class="hidden" data-mode="book" aria-pressed="false" title="Pinch-hold ~2s to cycle view (or press S)">
   <svg class="mf-icon-book" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
     <path d="M12 6c-1.5-1.8-4.2-2.5-7-2v14c2.8-.5 5.5.2 7 2 1.5-1.8 4.2-2.5 7-2V4c-2.8-.5-5.5.2-7 2z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
     <path d="M12 6v14" stroke="currentColor" stroke-width="1.5"/>
@@ -107,6 +107,12 @@
   <svg class="mf-icon-page" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
     <rect x="6" y="4" width="12" height="16" rx="2" stroke="currentColor" stroke-width="1.5"/>
     <path d="M9.5 9h5M9.5 12.5h5M9.5 16h3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+  </svg>
+  <svg class="mf-icon-half" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M7 4h10a1 1 0 0 1 1 1v9H6V5a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+    <path d="M6 14v5a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-5" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 2"/>
+    <path d="M9.5 9h5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    <path d="M10 18l2 2 2-2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
   </svg>
   <svg class="mf-progress" width="44" height="44" viewBox="0 0 44 44" aria-hidden="true">
     <circle class="mf-track" cx="22" cy="22" r="20"/>

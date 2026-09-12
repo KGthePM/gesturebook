@@ -25,14 +25,10 @@
  *     pinch pointer inside the mode-toggle button for DWELL_MS → fires
  *     onDwellToggle() once, then requires an unpinch. Moving out of the
  *     button resets the dwell; dragging never starts while inside it.
- *   - TWO-HAND ZOOM (single mode): both hands visible + both open → the
- *     distance between index fingertips drives onReadZoom(factor) live,
- *     anchored at the distance when the second hand appeared.
- *   - PINCH-PAN (single mode, zoomed): when canPan() is true, a pinch-grab
- *     becomes a pan instead of a page turn — onPanStart/onPanMove/onPanEnd.
+ *   - PINCH-PAN (half mode): when canPan() is true, a pinch-grab becomes a
+ *     scroll instead of a page turn — onPanStart/onPanMove/onPanEnd.
  *
- * One gesture owns the frame: two-hand zoom suppresses all single-hand
- * detectors while active; pan/dwell only run from the grabbing state.
+ * One gesture owns the frame: pan/dwell only run from the grabbing state.
  */
 
 import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
@@ -58,8 +54,6 @@ const PALM_HOLD_MS = 1000;    // open palm held → show controls
 const DWELL_MS = 2000;        // pinch-hold on the toggle button before it fires (lower = faster)
 const DWELL_PAD = 44;         // px of slack around the button that still counts as "on it"
 const PAN_GAIN = 1.15;        // page pans this multiple of hand movement (higher = faster pan)
-const ZOOM_MIN_SPAN = 0.12;   // min fingertip distance (normalized) before zoom anchors (near hands)
-const OPEN_RATIO = 0.55;      // both hands need pinch ratio > this to steer two-hand zoom
 
 const ENABLE_ZOOM = false;    // legacy single-hand pinch/spread zoom (dormant)
 const PINCH_IN = 0.30;        // (zoom, dormant) ratio for zoom-in
@@ -78,7 +72,7 @@ export class GestureEngine {
     this.cb = callbacks;   // { canDrag, onDragStart, onDragProgress, onDragCommit,
                            //   onDragCancel, onZoom, onPalmHold, onStatus,
                            //   canPan, onPanStart, onPanMove, onPanEnd,
-                           //   onReadZoom, onDwell, onDwellToggle }
+                           //   onDwell, onDwellToggle }
     this.landmarker = null;
     this.running = false;
     this.stream = null;
@@ -105,11 +99,6 @@ export class GestureEngine {
 
     /* pinch-pan */
     this.panX = 0; this.panY = 0;
-
-    /* two-hand zoom */
-    this.zoomAnchor = 0;         // fingertip span when the pair first appeared
-    this.zoomBase = 1;           // book zoom factor at anchor time
-    this.twoHand = false;
   }
 
   async start() {
@@ -123,7 +112,7 @@ export class GestureEngine {
       const opts = (delegate) => ({
         baseOptions: { modelAssetPath: MODEL_URL, delegate },
         runningMode: "VIDEO",
-        numHands: 2,             // v3: second hand drives two-hand zoom
+        numHands: 1,
       });
       try {
         this.landmarker = await HandLandmarker.createFromOptions(fileset, opts("GPU"));
@@ -196,31 +185,7 @@ export class GestureEngine {
       else if (this.state === "cooldown" && now - this.stateT > COOLDOWN_MS) this.state = "idle";
       this.pinchNeutral = true;
       this.palmSince = 0;
-      this.twoHand = false;
       return;
-    }
-
-    /* ---------- v3: two-hand zoom (owns the frame while both hands are up) ---------- */
-    if (res.landmarks.length >= 2 && this.cb.onReadZoom &&
-        this.state !== "dragging" && this.state !== "panning") {
-      const a = res.landmarks[0];
-      const b = res.landmarks[1];
-      const span = Math.hypot((1 - a[8].x) - (1 - b[8].x), a[8].y - b[8].y);
-      const bothOpen = this._pinchRatio(a) > OPEN_RATIO && this._pinchRatio(b) > OPEN_RATIO;
-      if (bothOpen && span > ZOOM_MIN_SPAN) {
-        if (!this.twoHand) {
-          this.twoHand = true;
-          this.zoomAnchor = span;
-          this.zoomBase = this.cb.onReadZoomAnchor ? this.cb.onReadZoomAnchor() : 1;
-          if (this.state === "grabbing") { this.state = "idle"; this._resetDwell(); }
-          this.cb.onStatus("two hands \u00b7 spread to zoom");
-        }
-        this.cb.onReadZoom(this.zoomBase * (span / this.zoomAnchor));
-        return;   // zoom owns the frame — no grabs/flicks while both hands steer
-      }
-    }
-    if (this.twoHand && (res.landmarks.length < 2 || this.state === "dragging")) {
-      this.twoHand = false;    // hands dropped → back to normal next frame
     }
 
     const lm = res.landmarks[0];

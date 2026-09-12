@@ -136,18 +136,18 @@ async function openFile(file) {
     } catch (_) { /* corrupt session — start fresh */ }
 
     await book.setDocument(pdfDoc);
-    if (savedMode === "single") {
+    const restoringReader = savedMode === "single" || savedMode === "half";
+    if (restoringReader) {
       book.page = Math.max(1, restoredPage);
-      await book.setReadMode("single");   // re-applies class + renders this.page
+      await book.setReadMode(savedMode);   // re-applies class + renders this.page
       book.page = Math.max(1, restoredPage);
-      await book.renderPage(book.page, book.rightCanvas,
-        ...Object.values(book.pageBox()));
+      await book.renderCurrentPage();
     } else if (restored > 0) {
       book.spread = restored;
       await book.renderSpread();
     }
-    if (savedMode === "single" || restored > 0) {
-      setStatus(savedMode === "single"
+    if (restoringReader || restored > 0) {
+      setStatus(restoringReader
         ? `resumed ${file.name} at page ${book.page}`
         : `resumed ${file.name} at page ${restored + 1}`);
     } else {
@@ -192,6 +192,8 @@ window.addEventListener("drop", (e) => {
 window.addEventListener("keydown", (e) => {
   if (e.key === "ArrowRight") book.turnForward();
   if (e.key === "ArrowLeft") book.turnBackward();
+  if (e.key === "ArrowUp" && book.isHalf) book.scrollHalf(-1);
+  if (e.key === "ArrowDown" && book.isHalf) book.scrollHalf(1);
   if (e.key === "s" || e.key === "S") toggleReadMode();
 });
 
@@ -201,29 +203,35 @@ window.addEventListener("resize", () => {
   resizeTimer = setTimeout(() => { if (book.pdfDoc && !book.busy) book.renderCurrent(); }, 200);
 });
 
-/* ---------- v3: read-mode toggle ---------- */
+/* ---------- v3: read-mode toggle (3-way: book -> single -> half -> book) ---------- */
+
+const NEXT_MODE = { book: "single", single: "half", half: "book" };
+const MODE_LABEL = { book: "Book view", single: "Read view", half: "Half page" };
+const MODE_STATUS = {
+  book: "book view \u00b7 two-page spread",
+  single: "read view \u00b7 one page \u00b7 pinch to grab \u00b7 swipe to turn",
+  half: "half-page \u00b7 pinch to scroll \u00b7 swipe to turn",
+};
 
 function updateModeToggle() {
-  const label = book.isSingle ? "Book view" : "Read view";
   const pressed = String(book.isSingle);
   if (modeToggle) {
-    modeToggle.textContent = label;
+    modeToggle.textContent = MODE_LABEL[NEXT_MODE[book.readMode]];
     modeToggle.setAttribute("aria-pressed", pressed);
     modeToggle.classList.toggle("active", book.isSingle);
   }
   if (modeFab) {
     modeFab.setAttribute("aria-pressed", pressed);
+    modeFab.dataset.mode = book.readMode;
   }
 }
 
 function toggleReadMode() {
   if (!book.pdfDoc) { setStatus("open a PDF first"); return; }
-  book.setReadMode(book.isSingle ? "book" : "single");
+  book.setReadMode(NEXT_MODE[book.readMode]);
   updateModeToggle();
   try { localStorage.setItem(MODE_KEY, book.readMode); } catch (_) {}
-  setStatus(book.isSingle
-    ? "read view \u00b7 one page \u00b7 two-hand zoom \u00b7 pinch to pan"
-    : "book view \u00b7 two-page spread");
+  setStatus(MODE_STATUS[book.readMode]);
 }
 if (modeToggle) modeToggle.addEventListener("click", toggleReadMode);
 if (modeFab) modeFab.addEventListener("click", toggleReadMode);
@@ -255,18 +263,10 @@ const gestures = new GestureEngine({
     onPalmHold: () => wakeChrome({ pin: true }),
     onStatus: (text) => setStatus(text),
 
-    /* v3: two-hand zoom (single mode) */
-    onReadZoomAnchor: () => book.readZoom,
-    onReadZoom: (factor) => {
-      if (!book.isSingle) return;
-      book.setReadZoom(factor);
-      setStatus(book.readZoom <= 1.01 ? "zoom reset" : `zoom ${Math.round(book.readZoom * 100)}%`, { quiet: true });
-    },
-
-    /* v3: pinch-pan while zoomed in single mode */
-    canPan: () => book.isSingle && book.readZoom > 1.01,
+    /* v4: pinch-drag scrolls the page in half mode */
+    canPan: () => book.isHalf && !book.busy,
     onPanStart: () => {},
-    onPanMove: (dx, dy) => book.readPan(dx, dy),
+    onPanMove: (dx, dy) => book.readPan(dy),
     onPanEnd: () => { book._applyReadTransform(); },
 
     /* v3: dwell-to-toggle (pinch-hold the mode button ~2s) */
