@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <title>GestureBook</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+  /* v3: apply saved city theme before first paint (no flash). classic = no attr. */
+  try {
+    var t = localStorage.getItem("gesturebook:theme");
+    if (t === "seattle" || t === "boston") {
+      document.documentElement.setAttribute("data-theme", t);
+    }
+  } catch (_) { /* storage unavailable — stay classic */ }
+</script>
 <link rel="stylesheet" href="style.css">
 <!-- PDF.js 3.11.174 (pinned, cdnjs) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -23,19 +32,32 @@
   <label class="btn quiet" for="pdf-file">Open PDF</label>
   <input type="file" id="pdf-file" accept="application/pdf" hidden>
   <button class="btn quiet" id="cam-toggle">Start camera</button>
+  <div class="theme-picker" id="theme-picker" role="group" aria-label="Reading-room theme">
+    <button class="theme-opt" data-set-theme="classic" aria-pressed="true" title="Classic charcoal">Classic</button>
+    <button class="theme-opt" data-set-theme="seattle" aria-pressed="false" title="Seattle rain">Seattle</button>
+    <button class="theme-opt" data-set-theme="boston" aria-pressed="false" title="Boston lamplight">Boston</button>
+  </div>
   <span id="page-label">No PDF loaded</span>
 </header>
 
 <main id="stage">
+
+  <!-- v3 Reading Room: the whole home section is the dropzone -->
   <div id="dropzone">
-    <div class="dz-card">
-      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M12 16V6m0 0l-3.5 3.5M12 6l3.5 3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-      </svg>
-      <h2>Drop a PDF anywhere</h2>
-      <p>or choose a file — a sample lives in the app folder</p>
+    <div class="glow g1" aria-hidden="true"></div>
+    <div class="glow g2" aria-hidden="true"></div>
+    <div class="glow g3" aria-hidden="true"></div>
+    <div class="lamp" aria-hidden="true"></div>
+    <div class="motes m1" aria-hidden="true"></div>
+    <div class="motes m2" aria-hidden="true"></div>
+    <div class="rain" aria-hidden="true"></div>
+
+    <div class="book-closed">
+      <div class="bc-page"></div>
+      <div class="bc-cover"><span class="bc-mark">GestureBook</span></div>
     </div>
+
+    <p class="dz-hint">Drop a PDF anywhere &middot; or click the book</p>
   </div>
 
   <div id="book" class="hidden">

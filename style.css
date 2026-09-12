@@ -1,5 +1,6 @@
 /* GestureBook — reading-room theme.
- * Soft charcoal, warm paper, restrained motion (ease-in-out, no bounce). */
+ * Soft charcoal, warm paper, restrained motion (ease-in-out, no bounce).
+ * v3: city theme system (classic / seattle / boston) + Reading Room home page. */
 
 :root {
   --bg: #17181c;
@@ -9,10 +10,56 @@
   --text: #e9e7e2;
   --text-dim: #9aa0ab;
   --accent: #8ab4f8;
-  --paper: #f7f4ec;
+  --paper: #f7f4ec;                    /* page continuity: same in ALL themes */
   --pill: rgba(24, 25, 29, 0.78);
   --ease: cubic-bezier(0.65, 0, 0.35, 1);      /* ease-in-out, no bounce */
   --turn-ms: 650ms;
+
+  /* home reading-room per-theme accents */
+  --cover: linear-gradient(145deg, #2b2d33, #1c1e23 60%, #17181c);
+  --cover-emboss: rgba(233, 231, 226, 0.5);
+  --glow-a: rgba(190, 205, 235, 0.10);   /* classic: soft white-blue */
+  --glow-b: rgba(170, 190, 230, 0.07);
+  --glow-c: rgba(200, 210, 235, 0.05);
+  --lamp: none;                          /* classic: no lamp */
+}
+
+/* ---------- Seattle: rain-blue, evergreen, coffee ---------- */
+:root[data-theme="seattle"] {
+  --bg: #12161c;
+  --bg-glow: #1a2129;
+  --chrome: rgba(16, 20, 26, 0.72);
+  --line: rgba(190, 215, 235, 0.09);
+  --text: #e3e8ec;
+  --text-dim: #8fa0ae;
+  --accent: #54718a;                     /* rain blue */
+  --paper: #f7f4ec;
+  --pill: rgba(20, 25, 32, 0.80);
+  --cover: linear-gradient(145deg, #33474a, #22343c 58%, #1b2a31);
+  --cover-emboss: rgba(220, 232, 238, 0.45);
+  --glow-a: rgba(84, 113, 138, 0.11);    /* cool rain-blue */
+  --glow-b: rgba(176, 141, 111, 0.05);   /* faint coffee */
+  --glow-c: rgba(63, 93, 71, 0.05);      /* evergreen breath */
+  --lamp: none;
+}
+
+/* ---------- Boston: brick, mahogany, brass lamp ---------- */
+:root[data-theme="boston"] {
+  --bg: #16120f;
+  --bg-glow: #201a15;
+  --chrome: rgba(22, 17, 13, 0.72);
+  --line: rgba(232, 205, 160, 0.09);
+  --text: #ece5d8;
+  --text-dim: #a69783;
+  --accent: #c9973f;                     /* brass */
+  --paper: #f7f4ec;
+  --pill: rgba(30, 24, 18, 0.80);
+  --cover: linear-gradient(145deg, #5c3a30, #4a2c24 58%, #3c241d);
+  --cover-emboss: rgba(236, 229, 216, 0.45);
+  --glow-a: rgba(224, 178, 104, 0.10);   /* lamp glow */
+  --glow-b: rgba(200, 151, 63, 0.06);
+  --glow-c: rgba(110, 63, 53, 0.05);     /* faint brick warmth */
+  --lamp: radial-gradient(560px 420px at 50% 32%, rgba(224, 178, 104, 0.14), transparent 70%);
 }
 
 * { box-sizing: border-box; }
@@ -64,27 +111,182 @@ body {
 #page-label { margin-left: auto; font-size: 13px; color: var(--text-dim);
               font-variant-numeric: tabular-nums; }
 
+/* theme picker — small, quiet, sits with the buttons */
+.theme-picker {
+  display: flex; align-items: center; gap: 2px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 3px;
+}
+.theme-opt {
+  appearance: none; background: none; border: 0; cursor: pointer;
+  color: var(--text-dim); font: inherit; font-size: 12px; font-weight: 500;
+  padding: 4px 10px; border-radius: 6px;
+  transition: background 180ms var(--ease), color 180ms var(--ease);
+}
+.theme-opt:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+.theme-opt[aria-pressed="true"] { color: var(--text); background: rgba(255,255,255,0.10); }
+
 /* ---------- stage / book ---------- */
 #stage {
   flex: 1; display: flex; align-items: center; justify-content: center;
   perspective: 2600px; position: relative; z-index: 2;
 }
 
-#dropzone { cursor: pointer; }
-.dz-card {
-  text-align: center; color: var(--text-dim); padding: 56px 72px;
-  border: 1.5px dashed rgba(255,255,255,0.16); border-radius: 18px;
-  background: rgba(255,255,255,0.02);
-  transition: border-color 250ms var(--ease), color 250ms var(--ease),
-              background 250ms var(--ease), transform 250ms var(--ease);
+/* ---------- v3 Reading Room home ---------- */
+#dropzone {
+  --book-w: 300px;
+  cursor: pointer;
+  perspective: 1600px;
+  perspective-origin: 50% 45%;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 42px;
+  padding: 90px 40px 60px;                 /* clears the topbar */
+  contain: layout paint;
 }
-#dropzone:hover .dz-card, #dropzone.drag .dz-card {
-  border-color: rgba(138,180,248,0.55); color: var(--text);
-  background: rgba(138,180,248,0.05); transform: translateY(-2px);
-}
-.dz-card h2 { margin: 18px 0 6px; font-size: 19px; font-weight: 600; color: var(--text); }
-.dz-card p { margin: 0; font-size: 13.5px; }
 
+/* warm light pool — stacked radial blooms, one light source, compositor-only breathe */
+.glow, .lamp {
+  position: absolute; inset: 0; pointer-events: none;
+  border-radius: 50%;                      /* harmless on inset:0 */
+}
+.glow {
+  background: radial-gradient(ellipse at 50% 38%, var(--glow-a), transparent 70%);
+  opacity: 0.9; will-change: opacity, transform;
+}
+.g2 { background: radial-gradient(ellipse at 50% 36%, var(--glow-b), transparent 72%); }
+.g3 { background: radial-gradient(ellipse at 50% 40%, var(--glow-c), transparent 74%); }
+.lamp { background: var(--lamp); }
+
+/* dust motes — two stacked radial-gradient dot layers, transform-only drift */
+.motes {
+  position: absolute; inset: 0; pointer-events: none; will-change: transform, opacity;
+  background:
+    radial-gradient(1px 1px at 18% 22%, rgba(255,240,210,0.45), transparent 60%),
+    radial-gradient(1px 1px at 34% 64%, rgba(255,240,210,0.32), transparent 60%),
+    radial-gradient(1.5px 1.5px at 52% 14%, rgba(255,240,210,0.40), transparent 60%),
+    radial-gradient(1px 1px at 67% 48%, rgba(255,240,210,0.30), transparent 60%),
+    radial-gradient(1.5px 1.5px at 78% 30%, rgba(255,240,210,0.42), transparent 60%),
+    radial-gradient(1px 1px at 88% 70%, rgba(255,240,210,0.28), transparent 60%),
+    radial-gradient(1px 1px at 10% 82%, rgba(255,240,210,0.30), transparent 60%),
+    radial-gradient(1.5px 1.5px at 44% 88%, rgba(255,240,210,0.26), transparent 60%);
+}
+.m2 {
+  background:
+    radial-gradient(1px 1px at 26% 40%, rgba(255,240,210,0.38), transparent 60%),
+    radial-gradient(1.5px 1.5px at 41% 74%, rgba(255,240,210,0.30), transparent 60%),
+    radial-gradient(1px 1px at 58% 34%, rgba(255,240,210,0.34), transparent 60%),
+    radial-gradient(1px 1px at 72% 82%, rgba(255,240,210,0.30), transparent 60%),
+    radial-gradient(1.5px 1.5px at 84% 18%, rgba(255,240,210,0.36), transparent 60%),
+    radial-gradient(1px 1px at 6% 54%, rgba(255,240,210,0.28), transparent 60%),
+    radial-gradient(1px 1px at 62% 90%, rgba(255,240,210,0.24), transparent 60%),
+    radial-gradient(1.5px 1.5px at 94% 44%, rgba(255,240,210,0.30), transparent 60%);
+}
+
+/* Seattle rain streaks — transform-translated only, CSS-gated to theme */
+.rain {
+  position: absolute; inset: -20%; pointer-events: none; opacity: 0;
+  background: repeating-linear-gradient(74deg,
+    transparent, transparent 12px,
+    rgba(160,185,210,0.13) 12px 13px);
+  transition: opacity 600ms var(--ease);
+  will-change: transform;
+}
+:root[data-theme="seattle"] #dropzone:not(.cover-open) .rain { opacity: 1; }
+
+/* ---------- closed 3D book ---------- */
+.book-closed {
+  position: relative;
+  width: var(--book-w);
+  aspect-ratio: 1 / 1.414;
+  transform-style: preserve-3d;
+  transform: rotateY(-10deg);
+  transition: transform 400ms ease-out;
+}
+#dropzone:hover .book-closed { transform: rotateY(-16deg); }
+
+/* front cover — theme leather, embossed wordmark */
+.bc-cover {
+  position: absolute; inset: 0;
+  border-radius: 3px 10px 10px 3px;
+  background: var(--cover);
+  border: 1px solid rgba(0,0,0,0.35);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.06),
+    inset 0 0 0 1px rgba(0,0,0,0.25);
+  transform-origin: left center;
+  transform: translateZ(2px);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 700ms var(--ease), box-shadow 700ms var(--ease);
+}
+.bc-mark {
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  font-size: 26px; letter-spacing: 3px; text-transform: uppercase;
+  color: var(--cover-emboss);
+  text-shadow: 0 1px 0 rgba(0,0,0,0.55), 0 -1px 0 rgba(255,255,255,0.06);
+  padding-left: 3px;                      /* optical center past the spine */
+}
+/* inner face revealed as the cover swings: hinge shadow darkening toward spine */
+.bc-cover::after {
+  content: ""; position: absolute; inset: 0;
+  border-radius: 3px 10px 10px 3px;
+  background: var(--paper);
+  transform: rotateY(180deg);
+  backface-visibility: hidden; -webkit-backface-visibility: hidden;
+}
+#dropzone.cover-open .bc-cover { transform: translateZ(2px) rotateY(-145deg); }
+
+/* first page under the cover — hinge shadow toward spine */
+.bc-page {
+  position: absolute; inset: 0;
+  border-radius: 3px 10px 10px 3px;
+  background:
+    linear-gradient(to right, rgba(0,0,0,0.25), transparent 12%),
+    var(--paper);
+}
+
+/* page edge (right side block) */
+.book-closed::before {
+  content: ""; position: absolute; top: 3px; bottom: 3px; right: -2px;
+  width: 40px;
+  transform: rotateY(90deg);
+  transform-origin: right center;
+  background: repeating-linear-gradient(90deg,
+    #ece5d6 0 2px, #d9d2c0 2px 3px);
+  border-radius: 0 2px 2px 0;
+}
+/* back cover */
+.book-closed::after {
+  content: ""; position: absolute; inset: 0;
+  border-radius: 3px 10px 10px 3px;
+  background: #0e0f12;
+  transform: translateZ(-40px);
+}
+
+/* one light source: layered contact + cast shadow under the book */
+.book-closed { filter: none; }
+.book-closed .bc-page {
+  box-shadow:
+    0 1px 2px rgba(0,0,0,0.28),
+    0 4px 8px rgba(0,0,0,0.22),
+    0 12px 24px rgba(0,0,0,0.18),
+    0 24px 48px rgba(0,0,0,0.12);
+}
+
+.dz-hint {
+  margin: 0;
+  font-size: 12px; color: var(--text-dim);
+  font-variant: small-caps; letter-spacing: 2.5px;
+  transition: color 250ms var(--ease);
+}
+#dropzone:hover .dz-hint { color: var(--text); }
+
+/* cross-fade out once the reader takes over */
+#dropzone.fade-out { opacity: 0; transition: opacity 280ms var(--ease); }
+
+/* ---------- reader book (unchanged visuals) ---------- */
 #book {
   position: relative; display: flex;
   transform-style: preserve-3d;
@@ -219,4 +421,45 @@ body {
     0 0 18px rgba(140, 225, 170, 0.35),
     inset 0 0 10px rgba(140, 225, 170, 0.18);
   backdrop-filter: blur(1.5px);
+}
+
+/* ---------- ambient motion (all looping animation lives here) ---------- */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes breathe-a { 0%,100% { opacity: 0.85; transform: scale(1); }
+                         50% { opacity: 1; transform: scale(1.03); } }
+  @keyframes breathe-b { 0%,100% { opacity: 0.7; } 50% { opacity: 0.95; } }
+  @keyframes breathe-c { 0%,100% { opacity: 0.6; } 50% { opacity: 0.85; } }
+  .glow.g1 { animation: breathe-a 11s var(--ease) infinite; }
+  .glow.g2 { animation: breathe-b 14s var(--ease) infinite; }
+  .glow.g3 { animation: breathe-c 17s var(--ease) infinite; }
+
+  @keyframes mote-drift-1 {
+    0% { transform: translate3d(0,0,0); opacity: 0.55; }
+    50% { transform: translate3d(14px,-26px,0); opacity: 0.9; }
+    100% { transform: translate3d(0,0,0); opacity: 0.55; }
+  }
+  @keyframes mote-drift-2 {
+    0% { transform: translate3d(0,0,0); opacity: 0.8; }
+    50% { transform: translate3d(-18px,-20px,0); opacity: 0.45; }
+    100% { transform: translate3d(0,0,0); opacity: 0.8; }
+  }
+  .motes.m1 { animation: mote-drift-1 26s ease-in-out infinite; }
+  .motes.m2 { animation: mote-drift-2 34s ease-in-out infinite 7s; }
+
+  /* rain: transform-only loop (never background-position) */
+  @keyframes rain-fall {
+    from { transform: translate3d(0, -13.5%, 0); }
+    to { transform: translate3d(0, 13.5%, 0); }
+  }
+  .rain { animation: rain-fall 1.1s linear infinite; }
+
+  /* home hover invitation */
+  .book-closed { transition: transform 400ms ease-out; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* keep static gradients; swap cover swing for a plain cross-fade */
+  .book-closed, .bc-cover, #dropzone.fade-out { transition: opacity 280ms var(--ease); }
+  .rain, .motes, .glow { animation: none; }
+  #dropzone:hover .book-closed { transform: rotateY(-10deg); }
 }

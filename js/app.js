@@ -3,6 +3,7 @@
 
 import { Book } from "./book.js";
 import { GestureEngine } from "./gestures.js";
+import { initThemePicker, playCoverOpen } from "./theme.js";
 
 const pdfjsLib = window.pdfjsLib;
 if (pdfjsLib) {
@@ -93,7 +94,9 @@ function showLoading(title) {
 function hideLoading() { loading.classList.add("hidden"); }
 
 async function openFile(file) {
+  let coverDone = Promise.resolve();
   try {
+    coverDone = playCoverOpen(dropzone);     // v3: cover swings while PDF parses
     showLoading(`Opening ${file.name}…`);
     const buf = await file.arrayBuffer();
     const task = pdfjsLib.getDocument({
@@ -110,8 +113,10 @@ async function openFile(file) {
 
     currentName = file.name;
     zoomIdx = 0;
+    await coverDone;                          // let the cover finish its swing
+    dropzone.classList.add("fade-out");       // short cross-fade to reader
     bookEl.classList.remove("hidden");
-    dropzone.classList.add("hidden");
+    setTimeout(() => dropzone.classList.add("hidden"), 300);
 
     let restored = 0;
     try {
@@ -135,6 +140,7 @@ async function openFile(file) {
     wakeChrome();
   } catch (e) {
     setStatus("could not open: " + (e && e.message ? e.message : e));
+    dropzone.classList.remove("cover-open", "fade-out");   // re-close the book
   } finally {
     hideLoading();
   }
@@ -222,3 +228,4 @@ camToggle.addEventListener("click", async () => {
 });
 
 setStatus("Open a PDF to begin");
+initThemePicker();
