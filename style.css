@@ -443,7 +443,7 @@ html.single-mode .page canvas { transition: none; }       /* pan/zoom is live, n
 
 /* ---------- v3: mode FAB (dwell target) ---------- */
 #mode-fab {
-  position: fixed; right: 26px; bottom: 26px; z-index: 45;
+  position: fixed; right: 26px; top: 76px; z-index: 45;
   width: 56px; height: 56px; border-radius: 50%;
   background: var(--pill); border: 1px solid var(--line);
   backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);

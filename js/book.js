@@ -114,7 +114,9 @@ export class Book {
   }
 
   pageBox() {
-    const p = this.leftCanvas.parentElement;
+    // measure the RIGHT page container — the left one is display:none in
+    // single mode, which zeroed w/h and rendered a blank 1×1 canvas.
+    const p = this.rightCanvas.parentElement;
     return { w: p.clientWidth, h: p.clientHeight };
   }
 
