@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>GestureBook</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<!-- PDF.js 3.11.174 (pinned, cdnjs) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+
+<div id="vignette" aria-hidden="true"></div>
+
+<header id="topbar" aria-hidden="true">
+  <div class="brand">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 6c-1.5-1.8-4.2-2.5-7-2v14c2.8-.5 5.5.2 7 2 1.5-1.8 4.2-2.5 7-2V4c-2.8-.5-5.5.2-7 2z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+      <path d="M12 6v14" stroke="currentColor" stroke-width="1.4"/>
+    </svg>
+    <h1>GestureBook</h1>
+  </div>
+  <label class="btn quiet" for="pdf-file">Open PDF</label>
+  <input type="file" id="pdf-file" accept="application/pdf" hidden>
+  <button class="btn quiet" id="cam-toggle">Start camera</button>
+  <span id="page-label">No PDF loaded</span>
+</header>
+
+<main id="stage">
+  <div id="dropzone">
+    <div class="dz-card">
+      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M12 16V6m0 0l-3.5 3.5M12 6l3.5 3.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+      <h2>Drop a PDF anywhere</h2>
+      <p>or choose a file — a sample lives in the app folder</p>
+    </div>
+  </div>
+
+  <div id="book" class="hidden">
+    <div class="page left"><canvas id="canvas-left"></canvas></div>
+    <div class="page right"><canvas id="canvas-right"></canvas></div>
+    <div id="flip-layer"></div>
+  </div>
+</main>
+
+<div id="drop-overlay" class="hidden">
+  <div class="drop-frame">
+    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <path d="M12 16V6m0 0l-3.5 3.5M12 6l3.5 3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+    </svg>
+    <span>Release to open</span>
+  </div>
+</div>
+
+<div id="loading" class="hidden">
+  <div class="load-card">
+    <div class="spinner" aria-hidden="true"></div>
+    <div class="load-title" id="load-title">Opening book…</div>
+    <div class="load-bar"><div id="load-fill"></div></div>
+    <div class="load-pct" id="load-pct"></div>
+  </div>
+</div>
+
+<div id="status-pill" aria-live="polite">Open a PDF to begin</div>
+
+<div id="hint">Swipe left · next page&nbsp;&nbsp;&nbsp;Swipe right · previous&nbsp;&nbsp;&nbsp;Pinch · zoom in&nbsp;&nbsp;&nbsp;Spread · zoom out&nbsp;&nbsp;&nbsp;Open palm · controls&nbsp;&nbsp;&nbsp;← → keys work too</div>
+
+<div id="cam-overlay" class="hidden">
+  <video id="cam-video" autoplay playsinline muted></video>
+  <canvas id="cam-canvas"></canvas>
+</div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
