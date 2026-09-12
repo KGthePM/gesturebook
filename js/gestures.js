@@ -71,6 +71,7 @@ export class GestureEngine {
     this.dir = null;
     this.anchorX = 0;
     this.pinchOwner = false;     // true → pinch-grab drag (release decides)
+    this.pinchArmed = true;      // requires unpinch between grabs (no double-turn)
 
     this.pinchNeutral = true;    // requires return-to-neutral between zoom gestures
     this.lastPinchT = 0;
@@ -160,7 +161,8 @@ export class GestureEngine {
     }
 
     if (this.state === "idle") {
-      if (ratio < PINCH_ON) {
+      if (ratio > PINCH_OFF) this.pinchArmed = true;         // unpinched → next grab allowed
+      if (this.pinchArmed && ratio < PINCH_ON) {
         this._grab(x);
       } else if (dx <= -ENGAGE && this.cb.canDrag("forward")) {
         this._engageFlick("forward", x, now);
@@ -208,6 +210,7 @@ export class GestureEngine {
 
   _grab(x) {
     this.state = "grabbing";
+    this.pinchArmed = false;      // must unpinch before the next grab
     this.anchorX = x;
     this.cb.onStatus("pinch \u00b7 page grabbed");
   }
