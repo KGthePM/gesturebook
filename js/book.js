@@ -18,10 +18,15 @@ export class Book {
     this._finish = null;
     this.readMode = "book";     // "book" | "single" | "half"
     this.page = 1;              // 1-based page in single/half mode
-    this.readY = 0;             // half-mode vertical scroll offset (px)
     this._slide = null;
     this._slideDir = null;
     this._slideFrom = 0;
+
+    /* half-mode continuous scroll strip */
+    this._halfStrip = null;
+    this._halfSlots = null;      // Map<pageNum, {slot, canvas}>
+    this._halfRendered = null;   // Set<pageNum> with live pixels
+    this._halfObserver = null;
   }
 
   /* ---------- v3: single-page read mode ---------- */
@@ -34,6 +39,7 @@ export class Book {
     if (this.busy) return;
     const prevMode = this.readMode;
     this.readMode = mode;
+    if (prevMode === "half") this._teardownHalfStrip();
     if (mode === "book") {
       // return to book view: put the spread on the same page the reader left off
       this.spread = Math.max(0, Math.min(this.page - 1, this.numPages - 2));
@@ -47,47 +53,122 @@ export class Book {
       return;
     }
     if (prevMode === "book") this.page = Math.min(this.spread + 1, this.numPages);
-    this._resetReadView();
     this._applySingle(true);
-    this.renderCurrentPage()
-      .then(() => { this.busy = false; if (this.onSpreadChange) this.onSpreadChange(this.spread, this.numPages); });
-  }
-
-  _resetReadView() {
-    this.readY = 0;
+    const render = mode === "half" ? this._buildHalfStrip() : this.renderCurrentPage();
+    render.then(() => {
+      this.busy = false;
+      if (this.onSpreadChange) this.onSpreadChange(this.spread, this.numPages);
+    });
   }
 
   _applySingle(on) {
     document.documentElement.classList.toggle("single-mode", !!on);
     document.documentElement.classList.toggle("half-mode", !!on && this.isHalf);
-    if (on) this._applyReadTransform();
-    else this._clearReadTransform();
+    if (!on) this.rightCanvas.style.transform = "";
   }
 
-  _clearReadTransform() {
-    this.rightCanvas.style.transform = "";
+  /* ---------- v4: half-mode continuous scroll strip ----------
+   * One fixed-size slot (div + canvas) per page, laid out up front so scroll
+   * geometry never shifts under the user; only pixel content is lazily
+   * rendered/evicted as slots cross the viewport (IntersectionObserver). */
+
+  async _buildHalfStrip() {
+    const strip = document.createElement("div");
+    strip.className = "half-strip";
+    this._halfSlots = new Map();
+    this._halfRendered = new Set();
+
+    for (let n = 1; n <= this.numPages; n++) {
+      const { w, h } = await this._boxFor(n);
+      const slot = document.createElement("div");
+      slot.className = "half-slot";
+      slot.style.height = `${h}px`;
+      slot.dataset.page = String(n);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.floor(w));
+      canvas.height = Math.max(1, Math.floor(h));
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#f7f4ec";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      slot.appendChild(canvas);
+      strip.appendChild(slot);
+      this._halfSlots.set(n, { slot, canvas, w, h });
+    }
+
+    this.rightCanvas.parentElement.appendChild(strip);
+    this._halfStrip = strip;
+    strip.scrollTop = this._halfSlots.get(this.page).slot.offsetTop;
+    this._onHalfScroll = this._onHalfScroll.bind(this);
+    strip.addEventListener("scroll", this._onHalfScroll);
+
+    this._halfObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const n = Number(entry.target.dataset.page);
+        const { canvas, w, h } = this._halfSlots.get(n);
+        if (entry.isIntersecting) {
+          if (!this._halfRendered.has(n)) {
+            this._halfRendered.add(n);
+            this.renderPage(n, canvas, w, h);
+          }
+        } else if (this._halfRendered.has(n)) {
+          this._halfRendered.delete(n);
+          canvas.width = 0;
+          canvas.height = 0;
+        }
+      }
+    }, { root: strip, rootMargin: "100% 0px" });
+    for (const { slot } of this._halfSlots.values()) this._halfObserver.observe(slot);
   }
 
-  _applyReadTransform() {
-    if (!this.isHalf) { this._clearReadTransform(); return; }
-    const box = this.pageBox();
-    const maxY = Math.max(0, this.rightCanvas.offsetHeight - box.h);
-    this.readY = Math.max(-maxY, Math.min(0, this.readY));
-    this.rightCanvas.style.transform = `translateY(${this.readY}px)`;
+  _teardownHalfStrip() {
+    if (!this._halfStrip) return;
+    if (this._halfObserver) this._halfObserver.disconnect();
+    this._halfStrip.removeEventListener("scroll", this._onHalfScroll);
+    this._halfStrip.remove();
+    this._halfStrip = null;
+    this._halfSlots = null;
+    this._halfRendered = null;
+    this._halfObserver = null;
+    this._halfScrollQueued = false;
+  }
+
+  _onHalfScroll() {
+    if (this._halfScrollQueued) return;
+    this._halfScrollQueued = true;
+    requestAnimationFrame(() => {
+      this._halfScrollQueued = false;
+      if (!this._halfStrip) return;
+      const top = this._halfStrip.scrollTop;
+      let current = 1;
+      for (const [n, { slot }] of this._halfSlots) {
+        if (slot.offsetTop <= top) current = n; else break;
+      }
+      if (current !== this.page) {
+        this.page = current;
+        if (this.onSpreadChange) this.onSpreadChange(this.spread, this.numPages);
+      }
+    });
   }
 
   /* Vertical scroll by pixels of pinch-hand movement (half mode only). */
   readPan(dy) {
-    this.readY += dy;
-    this._applyReadTransform();
+    if (this._halfStrip) this._halfStrip.scrollTop -= dy;
   }
 
   /* Keyboard scroll: dir -1 (up) / +1 (down), stepping ~90% of the visible box. */
   scrollHalf(dir) {
-    if (!this.isHalf) return;
-    const step = this.pageBox().h * 0.9;
-    this.readY += dir < 0 ? step : -step;
-    this._applyReadTransform();
+    if (!this._halfStrip) return;
+    const step = this._halfStrip.clientHeight * 0.9;
+    this._halfStrip.scrollBy({ top: dir < 0 ? -step : step, behavior: "smooth" });
+  }
+
+  /* Smooth-scroll to the top of `pageNum` (half mode's coarse ←/→ jump). */
+  jumpToPage(pageNum, { smooth = true } = {}) {
+    if (!this._halfStrip) return;
+    const n = Math.max(1, Math.min(this.numPages, pageNum));
+    const entry = this._halfSlots.get(n);
+    if (!entry) return;
+    this._halfStrip.scrollTo({ top: entry.slot.offsetTop, behavior: smooth ? "smooth" : "auto" });
   }
 
   /* Box to render `pageNum` into for the current mode: fit-page normally,
@@ -105,20 +186,20 @@ export class Book {
   async renderCurrentPage() {
     const { w, h } = await this._boxFor();
     await this.renderPage(this.page, this.rightCanvas, w, h);
-    this._applyReadTransform();
   }
 
   get numPages() { return this.pdfDoc ? this.pdfDoc.numPages : 0; }
 
   setDocument(pdfDoc) {
+    this._teardownHalfStrip();
     this.pdfDoc = pdfDoc;
     this.spread = this.isSingle ? 0 : this.spread;
     this.page = 1;
-    this._resetReadView();
     this.setZoom(1);
     this._cleanupFlip();
     this.busy = false;
     this._applySingle(this.isSingle);
+    if (this.isHalf) return this._buildHalfStrip();
     return this.isSingle ? this.renderCurrentPage() : this.renderSpread();
   }
 
@@ -166,7 +247,10 @@ export class Book {
 
   /* Mode-aware re-render for resize: single/half mode tracks `page`, not `spread`. */
   async renderCurrent() {
-    if (this.isSingle) {
+    if (this.isHalf) {
+      this._teardownHalfStrip();
+      await this._buildHalfStrip();
+    } else if (this.isSingle) {
       await this.renderCurrentPage();
     } else {
       await this.renderSpread();
@@ -271,6 +355,7 @@ export class Book {
   /* ---------- single-mode slide plumbing ---------- */
 
   async _beginSlide(dir) {
+    if (this.isHalf) return false;   // half mode turns pages via continuous scroll, not slides
     this.busy = true;
     if (dir === "forward") {
       // clone current page to slide away; render the next page underneath
@@ -315,7 +400,6 @@ export class Book {
       if (done) return;
       done = true;
       this.page = newPage;
-      this.readY = 0;    // arriving on a new page always lands at the top
       if (this._slideDir === "backward") {
         // the incoming page was only ever drawn on the slide's own throwaway
         // canvas — sync it onto rightCanvas before uncovering it, or the old
@@ -323,7 +407,6 @@ export class Book {
         const { w, h } = await this._boxFor(this.page);
         await this.renderPage(this.page, this.rightCanvas, w, h);
       }
-      this._applyReadTransform();
       slide.remove();
       this._slide = null;
       this.busy = false;
@@ -377,7 +460,6 @@ export class Book {
           // put the original page back on the main canvas
           const { w, h } = await this._boxFor(this._slideFrom);
           await this.renderPage(this._slideFrom, this.rightCanvas, w, h);
-          this._applyReadTransform();
         }
         this.busy = false;
       };
@@ -406,6 +488,7 @@ export class Book {
 
   async turnForward() {
     if (!this.canDrag("forward")) return false;
+    if (this.isHalf) { this.jumpToPage(this.page + 1); return true; }
     if (!(await this.beginDrag("forward"))) return false;
     this.commitDrag();
     return true;
@@ -413,6 +496,7 @@ export class Book {
 
   async turnBackward() {
     if (!this.canDrag("backward")) return false;
+    if (this.isHalf) { this.jumpToPage(this.page - 1); return true; }
     if (!(await this.beginDrag("backward"))) return false;
     this.commitDrag();
     return true;

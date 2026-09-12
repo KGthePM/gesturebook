@@ -22,21 +22,23 @@ Press **S** (or pinch-hold the floating mode button ~2s) to cycle:
 **Book** → two-page spread, page-flip animation.
 **Read** → one page at a time, fit-to-page, slide transitions.
 **Half-page** → one page rendered fit-to-width at full resolution — crisper
-text than Read view — cropped to a wide, short window that you scroll
-vertically; page turns are still whole-page jumps (flick or arrow keys), not
-part of the scroll.
+text than Read view — cropped to a wide, short window you scroll vertically.
+Scrolling is continuous: keep scrolling past the bottom of a page and it
+flows straight into the next one, with no page-turn animation. The open-hand
+swipe/flick is disabled in this view; ← / → jump straight to the top of the
+next/previous page as a coarse shortcut.
 
 ## Controls
 
 | Input | Action |
 |---|---|
-| Pinch (thumb + index) and drag left / right | Grab the page and turn it; release decides commit vs. cancel |
-| Quick open-hand swipe left / right | Flick-turn without a full pinch-drag |
-| Pinch and drag, in Half-page view | Scroll the page vertically (clamped at top/bottom — doesn't turn pages) |
+| Pinch (thumb + index) and drag left / right | Grab the page and turn it; release decides commit vs. cancel (Book / Read views) |
+| Quick open-hand swipe left / right | Flick-turn without a full pinch-drag (Book / Read views) |
+| Pinch and drag, in Half-page view | Scroll continuously through the document, across page boundaries (clamped at the very first/last page) |
 | Pinch-hold the mode button ~2s | Cycle Book → Read → Half-page |
 | Open palm, hold ~1s | Bring back the top controls |
-| ← / → keys | Turn pages without the camera |
-| ↑ / ↓ keys, in Half-page view | Scroll without the camera |
+| ← / → keys | Turn pages (Book / Read); jump to the next/previous page's top (Half-page) |
+| ↑ / ↓ keys, in Half-page view | Scroll continuously without the camera |
 | S key | Cycle views |
 | Drag-and-drop / Open PDF | Load any PDF |
 

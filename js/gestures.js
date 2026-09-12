@@ -259,7 +259,7 @@ export class GestureEngine {
         const dxpx = (tipX - this.panX) * PAN_GAIN;
         const dypx = (tipY - this.panY) * PAN_GAIN;
         this.panX = tipX; this.panY = tipY;
-        if (this.cb.onPanMove) this.cb.onPanMove(-dxpx, -dypx);  // drag content, not viewport
+        if (this.cb.onPanMove) this.cb.onPanMove(-dxpx, dypx);  // drag content, not viewport
       }
       return;
     }

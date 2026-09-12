@@ -359,6 +359,13 @@ html.half-mode .page.right canvas,
 html.half-mode .slide-page canvas {
   height: auto;    /* tall canvas keeps its intrinsic aspect; height:100% would squash it */
 }
+/* v4.1: continuous-scroll strip — one slot per page, native scroll, no page-turn */
+html.half-mode #canvas-right { display: none; }
+html.half-mode .half-strip {
+  position: absolute; inset: 0;
+  overflow-y: auto; overflow-x: hidden;
+}
+html.half-mode .half-strip canvas { display: block; width: 100%; height: auto; }
 .slide-page {
   position: absolute; inset: 0; overflow: hidden; background: var(--paper);
   border-radius: 10px; z-index: 6;

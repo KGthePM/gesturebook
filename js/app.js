@@ -139,9 +139,14 @@ async function openFile(file) {
     const restoringReader = savedMode === "single" || savedMode === "half";
     if (restoringReader) {
       book.page = Math.max(1, restoredPage);
-      await book.setReadMode(savedMode);   // re-applies class + renders this.page
-      book.page = Math.max(1, restoredPage);
-      await book.renderCurrentPage();
+      await book.setReadMode(savedMode);   // re-applies class + renders/builds (may reset page)
+      if (book.isHalf) {
+        book.jumpToPage(restoredPage, { smooth: false });
+        book.page = Math.max(1, restoredPage);
+      } else {
+        book.page = Math.max(1, restoredPage);
+        await book.renderCurrentPage();
+      }
     } else if (restored > 0) {
       book.spread = restored;
       await book.renderSpread();
@@ -210,7 +215,7 @@ const MODE_LABEL = { book: "Book view", single: "Read view", half: "Half page" }
 const MODE_STATUS = {
   book: "book view \u00b7 two-page spread",
   single: "read view \u00b7 one page \u00b7 pinch to grab \u00b7 swipe to turn",
-  half: "half-page \u00b7 pinch to scroll \u00b7 swipe to turn",
+  half: "half-page \u00b7 pinch to scroll \u00b7 \u2190/\u2192 to jump pages",
 };
 
 function updateModeToggle() {
@@ -249,7 +254,7 @@ const gestures = new GestureEngine({
   pointerEl: $("hand-pointer"),
   dwellEl: modeFab,
   callbacks: {
-    canDrag: (dir) => book.canDrag(dir),
+    canDrag: (dir) => !book.isHalf && book.canDrag(dir),
     onDragStart: (dir) => book.beginDrag(dir),
     onDragProgress: (dir, p) => book.dragTo(p),
     onDragCommit: () => book.commitDrag(),
@@ -267,7 +272,7 @@ const gestures = new GestureEngine({
     canPan: () => book.isHalf && !book.busy,
     onPanStart: () => {},
     onPanMove: (dx, dy) => book.readPan(dy),
-    onPanEnd: () => { book._applyReadTransform(); },
+    onPanEnd: () => {},
 
     /* v3: dwell-to-toggle (pinch-hold the mode button ~2s) */
     onDwell: (p) => {
