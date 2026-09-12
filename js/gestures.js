@@ -1,18 +1,28 @@
-/* gestures.js — MediaPipe HandLandmarker driving page-follow swipes.
+/* gestures.js — MediaPipe HandLandmarker driving pinch-to-grab page turns.
  *
  * Coordinates are MIRRORED to selfie view (1 - x) so moving your hand left
  * on your side moves the pointer left on screen and turns to the NEXT page —
  * matching natural "flick the page away" intuition.
  *
- * Swipe state machine:
- *   idle → (wrist moves ≥ ENGAGE in ≤150ms) → dragging
- *   dragging: page angle tracks hand x (page-follow)
- *     commit  when progress > 0.55 or flick velocity ≥ FLICK
- *     cancel  when hand retreats or is lost
- *   cooldown 700ms, then idle.
+ * v2.0 — pinch-to-grab (primary):
+ *   idle → (thumb+index pinched: ratio < PINCH_ON) → grabbing
+ *   grabbing: page direction locks once the hand moves > GRAB_DEADZONE
+ *     (hand-left = forward/next, hand-right = backward/previous);
+ *     the page then follows hand x from the grab anchor (page-follow).
+ *   dragging (pinch-owned): RELEASING the pinch decides —
+ *     progress > COMMIT_AT → commit, else cancel (snap home).
+ *   Release before moving → idle, nothing happens.
+ *   Hysteresis: grab at ratio < PINCH_ON, release at ratio > PINCH_OFF,
+ *   so the pinch can't flutter at the boundary.
  *
- * Zoom gestures are DISABLED for now (ENABLE_ZOOM=false) — pinch/spread
- * misfired during swipes and fought the page turns.
+ * Fast wrist-flick (secondary quick-turn) is kept for an open hand:
+ *   idle → (wrist moves ≥ ENGAGE in ≤ WINDOW_MS) → dragging
+ *   dragging (flick-owned): commit on progress > COMMIT_AT or flick
+ *   velocity ≥ FLICK; cancel on retreat or hand loss.
+ *
+ * One gesture owns the frame: the flick detector only runs while idle and
+ * unpinched; secondary detectors (zoom/palm) only while idle, and zoom stays
+ * disabled (ENABLE_ZOOM=false) after earlier misfires.
  */
 
 import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
@@ -20,18 +30,28 @@ import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@m
 const WASM_ROOT = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
 const MODEL_URL = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task";
 
-const WINDOW_MS = 150;      // velocity look-back
-const ENGAGE = 0.10;        // normalized wrist x displacement to start a drag
-const FLICK = 0.30;         // fast-swipe commit threshold within window
-const TRACK_SPAN = 0.40;    // hand travel (normalized x) for a full page turn
-const COMMIT_AT = 0.55;     // progress past which a drag commits
-const COOLDOWN_MS = 700;
+/* ---------- tuning knobs (Kyle: nudge these, nowhere else) ---------- */
 
-const PALM_HOLD_MS = 1000;  // open palm held → show controls
+const PINCH_ON = 0.30;        // pinch ratio below this GRABS the page (lower = need tighter pinch)
+const PINCH_OFF = 0.42;       // pinch ratio above this RELEASES (hysteresis; keep > PINCH_ON)
+const GRAB_DEADZONE = 0.015;  // hand travel before direction locks & page lifts (small = eager)
+const TRACK_SPAN = 0.30;      // hand travel (normalized x) for a full page turn (lower = easier)
+const COMMIT_AT = 0.32;       // release past this progress commits the turn (lower = easier)
 
-const ENABLE_ZOOM = false; // pinch/spread zoom off for now (misfired during swipes)
+const WINDOW_MS = 150;        // velocity look-back (flick path)
+const ENGAGE = 0.10;          // wrist x displacement to start a flick drag (open hand)
+const FLICK = 0.30;           // fast-swipe commit threshold within window (flick path)
+const COOLDOWN_MS = 700;      // ignore gestures right after a commit/cancel
+
+const PALM_HOLD_MS = 1000;    // open palm held → show controls
+
+const ENABLE_ZOOM = false;    // pinch/spread zoom off for now (misfired during swipes)
+const PINCH_IN = 0.30;        // (zoom, dormant) ratio for zoom-in
+const SPREAD_OUT = 1.0;       // (zoom, dormant) ratio for zoom-out
+const PINCH_LOCK_MS = 400;    // (zoom, dormant) min gap between zoom steps
 
 const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
 export class GestureEngine {
   constructor({ video, overlayCanvas, pointerEl, callbacks }) {
@@ -46,10 +66,11 @@ export class GestureEngine {
     this.lastVideoTime = -1;
 
     this.buf = [];               // wrist samples [{t, x}]
-    this.state = "idle";         // idle | dragging | cooldown
+    this.state = "idle";         // idle | grabbing | dragging | cooldown
     this.stateT = 0;
     this.dir = null;
     this.anchorX = 0;
+    this.pinchOwner = false;     // true → pinch-grab drag (release decides)
 
     this.pinchNeutral = true;    // requires return-to-neutral between zoom gestures
     this.lastPinchT = 0;
@@ -108,12 +129,19 @@ export class GestureEngine {
     requestAnimationFrame(() => this._loop());
   }
 
+  /* pinch ratio: thumb-index tip distance normalized by hand span (wrist→middle MCP) */
+  _pinchRatio(lm) {
+    const span = Math.max(d(lm[0], lm[9]), 1e-6);
+    return d(lm[4], lm[8]) / span;
+  }
+
   _process(res, now) {
     const hasHand = res.landmarks && res.landmarks.length > 0;
 
     if (!hasHand) {
       this.buf = [];
-      if (this.state === "dragging") this._cancel();
+      if (this.state === "dragging") this._cancel(now);       // lost tracking mid-drag
+      else if (this.state === "grabbing") this.state = "idle"; // grabbed but page never lifted
       else if (this.state === "cooldown" && now - this.stateT > COOLDOWN_MS) this.state = "idle";
       this.pinchNeutral = true;
       this.palmSince = 0;
@@ -122,6 +150,7 @@ export class GestureEngine {
 
     const lm = res.landmarks[0];
     const x = 1 - lm[0].x;   // mirror to selfie view: hand-left = screen-left
+    const ratio = this._pinchRatio(lm);
     this.buf.push({ t: now, x });
     while (this.buf.length && now - this.buf[0].t > WINDOW_MS) this.buf.shift();
     const dx = x - this.buf[0].x;
@@ -131,34 +160,74 @@ export class GestureEngine {
     }
 
     if (this.state === "idle") {
-      if (dx <= -ENGAGE && this.cb.canDrag("forward")) {
-        this._engage("forward", x, now);
+      if (ratio < PINCH_ON) {
+        this._grab(x);
+      } else if (dx <= -ENGAGE && this.cb.canDrag("forward")) {
+        this._engageFlick("forward", x, now);
       } else if (dx >= ENGAGE && this.cb.canDrag("backward")) {
-        this._engage("backward", x, now);
+        this._engageFlick("backward", x, now);
+      }
+    } else if (this.state === "grabbing") {
+      if (ratio > PINCH_OFF) {
+        this.state = "idle"; this.buf = [{ t: now, x }];   // released before moving
+        this.cb.onStatus("released");
+      } else {
+        const off = x - this.anchorX;
+        if (Math.abs(off) > GRAB_DEADZONE) {
+          const dir = off < 0 ? "forward" : "backward";    // mirrored: hand-left = next
+          if (this.cb.canDrag(dir)) {
+            this._engageGrab(dir, now);
+          } else {
+            this.anchorX = x;   // can't turn that way — recenter and let them reverse
+          }
+        }
       }
     }
 
     if (this.state === "dragging") {
       const travel = this.dir === "forward" ? this.anchorX - x : x - this.anchorX;
       const progress = travel / TRACK_SPAN;
-      this.cb.onDragProgress(this.dir, Math.max(0, Math.min(1, progress)));
-      if (progress > COMMIT_AT || (this.dir === "forward" ? dx < -FLICK : dx > FLICK)) {
+      this.cb.onDragProgress(this.dir, clamp01(progress));
+      if (this.pinchOwner) {
+        if (ratio > PINCH_OFF) {                            // release DECIDES
+          if (progress > COMMIT_AT) this._commit(now);
+          else this._cancel(now);
+        }
+      } else if (progress > COMMIT_AT || (this.dir === "forward" ? dx < -FLICK : dx > FLICK)) {
         this._commit(now);
       } else if (travel < 0.02 && Math.abs(dx) < 0.03) {
         this._cancel(now);       // hand drifted back — snap home
       }
     }
 
-    if (ENABLE_ZOOM) {
+    if (ENABLE_ZOOM && this.state === "idle") {   // one gesture owns the frame
       this._pinch(lm, now);
       this._palm(lm, now);
     }
   }
 
-  _engage(dir, x, now) {
+  _grab(x) {
+    this.state = "grabbing";
+    this.anchorX = x;
+    this.cb.onStatus("pinch \u00b7 page grabbed");
+  }
+
+  _engageGrab(dir, now) {
     this.state = "dragging";
+    this.pinchOwner = true;
+    this.dir = dir;
+    this.stateT = now;
+    this.cb.onDragStart(dir);
+    this.cb.onStatus(dir === "forward" ? "grabbed \u00b7 following hand \u2192 next page"
+                                       : "grabbed \u00b7 following hand \u2190 previous page");
+  }
+
+  _engageFlick(dir, x, now) {
+    this.state = "dragging";
+    this.pinchOwner = false;
     this.dir = dir;
     this.anchorX = x;
+    this.stateT = now;
     this.cb.onDragStart(dir);
     this.cb.onStatus(dir === "forward" ? "following swipe \u2192 next page"
                                        : "following swipe \u2190 previous page");
@@ -178,8 +247,7 @@ export class GestureEngine {
 
   /* pinch-in → zoom in · finger-spread → zoom out (latched, with neutral reset) */
   _pinch(lm, now) {
-    const span = Math.max(d(lm[0], lm[9]), 1e-6);
-    const ratio = d(lm[4], lm[8]) / span;
+    const ratio = this._pinchRatio(lm);
     if (ratio > 0.5 && ratio < 0.95) { this.pinchNeutral = true; return; }
     if (!this.pinchNeutral || now - this.lastPinchT < PINCH_LOCK_MS) return;
     if (ratio < PINCH_IN) {
