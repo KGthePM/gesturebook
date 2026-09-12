@@ -1,6 +1,9 @@
-/* book.js — two-page spread rendering + CSS 3D page turns with live page-follow.
+/* book.js — two-page spread rendering + CSS 3D page turns with live page-follow,
+ * plus a v3 single-page Read view with cross-fade slide transitions.
  * Exposes a drag API so gestures can steer the flip: beginDrag(dir) → dragTo(p) → commit/cancel.
  */
+
+const MAX_READ_ZOOM = 3;   // single-mode zoom ceiling (1 = fit page)
 
 export class Book {
   constructor({ bookEl, leftCanvas, rightCanvas, flipLayer, onSpreadChange }) {
@@ -15,18 +18,100 @@ export class Book {
     this.zoom = 1;
     this._flip = null;
     this._finish = null;
+    this.readMode = "book";     // "book" | "single"
+    this.page = 1;              // 1-based page in single mode
+    this.readZoom = 1;          // single-mode zoom level (1 = fit)
+    this.readX = 0;             // pan offsets (px, page-box units at zoom)
+    this.readY = 0;
+    this._slide = null;
+    this._slideDir = null;
+    this._slideFrom = 0;
   }
 
-  setDocument(pdfDoc) {
-    this.pdfDoc = pdfDoc;
-    this.spread = 0;
-    this.setZoom(1);
-    this._cleanupFlip();
-    this.busy = false;
-    return this.renderSpread();
+  /* ---------- v3: single-page read mode ---------- */
+
+  get isSingle() { return this.readMode === "single"; }
+
+  setReadMode(mode) {
+    if (mode === this.readMode || !this.pdfDoc) return;
+    if (this.busy) return;
+    this.readMode = mode;
+    if (mode === "single") {
+      this.page = Math.min(this.spread + 1, this.numPages);
+      this._resetReadView();
+    } else {
+      // return to book view: put the spread on the same page the reader left off
+      this.spread = Math.max(0, Math.min(this.page - 1, this.numPages - 2));
+      this.page = 0;
+      this.setZoom(1);  // clear any book-zoom transform
+      this._applySingle(false);
+      this.renderSpread().then(() => {
+        this.busy = false;
+        if (this.onSpreadChange) this.onSpreadChange(this.spread, this.numPages);
+      });
+      return;
+    }
+    this._applySingle(true);
+    this.renderPage(this.page, this.rightCanvas, ...Object.values(this.pageBox()))
+      .then(() => { this.busy = false; if (this.onSpreadChange) this.onSpreadChange(this.spread, this.numPages); });
+  }
+
+  _resetReadView() {
+    this.readZoom = 1; this.readX = 0; this.readY = 0;
+  }
+
+  _applySingle(on) {
+    document.documentElement.classList.toggle("single-mode", !!on);
+    if (on) this._applyReadTransform();
+    else this._clearReadTransform();
+  }
+
+  _clearReadTransform() {
+    this.rightCanvas.style.transform = "";
+  }
+
+  _applyReadTransform() {
+    const { w, h } = this.pageBox();
+    const maxX = Math.max(0, (w * this.readZoom - w) / 2);
+    const maxY = Math.max(0, (h * this.readZoom - h) / 2);
+    const px = Math.max(-maxX, Math.min(maxX, this.readX));
+    const py = Math.max(-maxY, Math.min(maxY, this.readY));
+    this.readX = px; this.readY = py;
+    this.rightCanvas.style.transform =
+      `translate(${px}px, ${py}px) scale(${this.readZoom})`;
+  }
+
+  /* Continuous two-hand zoom: factor > 1 zooms in. Clamped to [1, MAX_READ_ZOOM]. */
+  setReadZoom(factor) {
+    const z = Math.max(1, Math.min(MAX_READ_ZOOM, factor));
+    if (z === this.readZoom) return;
+    // keep the pan clamped as we zoom out (content shrinks back toward fit)
+    this.readZoom = z;
+    this._applyReadTransform();
+  }
+
+  /* Pan by pixels of hand movement mapped through the current zoom. */
+  readPan(dx, dy) {
+    this.readX += dx;
+    this.readY += dy;
+    this._applyReadTransform();
   }
 
   get numPages() { return this.pdfDoc ? this.pdfDoc.numPages : 0; }
+
+  setDocument(pdfDoc) {
+    this.pdfDoc = pdfDoc;
+    this.spread = this.isSingle ? 0 : this.spread;
+    this.page = 1;
+    this._resetReadView();
+    this.setZoom(1);
+    this._cleanupFlip();
+    this.busy = false;
+    this._applySingle(this.isSingle);
+    return this.isSingle
+      ? this.renderPage(this.page, this.rightCanvas, ...Object.values(this.pageBox()))
+      : this.renderSpread();
+  }
 
   pageBox() {
     const p = this.leftCanvas.parentElement;
@@ -71,6 +156,7 @@ export class Book {
   label() {
     if (!this.pdfDoc) return "No PDF loaded";
     const n = this.numPages;
+    if (this.isSingle) return `${this.page} of ${n}`;
     const l = Math.min(this.spread + 1, n);
     const r = Math.min(this.spread + 2, n);
     return `${l}\u2013${r} of ${n}`;
@@ -96,6 +182,7 @@ export class Book {
 
   _cleanupFlip() {
     if (this._flip) { this._flip.remove(); this._flip = null; }
+    if (this._slide) { this._slide.remove(); this._slide = null; }
     if (this._finish) { this._finish = null; }
   }
 
@@ -117,11 +204,27 @@ export class Book {
 
   canDrag(dir) {
     if (!this.pdfDoc || this.busy) return false;
+    if (this.isSingle) {
+      if (this.readZoom > 1.01) return false;   // zoomed: pinch-grab pans instead
+      return dir === "forward" ? this.page < this.numPages : this.page > 1;
+    }
     return dir === "forward" ? this.spread + 3 <= this.numPages : this.spread > 0;
+  }
+
+  /* ---------- v3: single-page slide turns ----------
+   * forward: current page slides left, next page already rendered underneath.
+   * backward: previous page slides in from the left over the current one. */
+
+  _buildSlide(canvas) {
+    const slide = document.createElement("div");
+    slide.className = "slide-page";
+    slide.appendChild(canvas);
+    return slide;
   }
 
   async beginDrag(dir) {
     if (!this.canDrag(dir)) return false;
+    if (this.isSingle) return this._beginSlide(dir);
     this.busy = true;
     const { w, h } = this.pageBox();
     if (dir === "forward") {
@@ -146,7 +249,64 @@ export class Book {
     return true;
   }
 
+  /* ---------- single-mode slide plumbing ---------- */
+
+  async _beginSlide(dir) {
+    this.busy = true;
+    const { w, h } = this.pageBox();
+    if (dir === "forward") {
+      // clone current page to slide away; render the next page underneath
+      const cur = this._cloneCanvas(this.rightCanvas);
+      this._slide = this._buildSlide(cur);
+      this._slideDir = "forward";
+      this._slideFrom = this.page;
+      this._slide.style.transform = "translateX(0)";
+      await this.renderPage(this.page + 1, this.rightCanvas, w, h);
+      this._applyReadTransform();
+    } else {
+      // previous page slides in from the left over the current one
+      const prev = document.createElement("canvas");
+      await this.renderPage(this.page - 1, prev, w, h);
+      this._slide = this._buildSlide(prev);
+      this._slideDir = "backward";
+      this._slideFrom = this.page;
+      this._slide.style.transform = "translateX(-100%)";
+    }
+    this.flipLayer.appendChild(this._slide);
+    this._slide.getBoundingClientRect();
+    return true;
+  }
+
+  _slideTo(p) {                          // p 0..1 (1 = fully turned)
+    if (!this._slide) return;
+    const clamped = Math.max(0, Math.min(1.04, p));
+    const pct = this._slideDir === "forward" ? -100 * clamped : -100 * (1 - clamped);
+    this._slide.style.transform = `translateX(${pct}%)`;
+  }
+
+  _finishSlide(newPage, fromPct) {
+    const slide = this._slide;
+    if (!slide) { this.busy = false; return; }
+    slide.classList.add("anim");
+    slide.getBoundingClientRect();
+    const to = this._slideDir === "forward" ? -100 : 0;
+    requestAnimationFrame(() => { slide.style.transform = `translateX(${to}%)`; });
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      this.page = newPage;
+      slide.remove();
+      this._slide = null;
+      this.busy = false;
+      if (this.onSpreadChange) this.onSpreadChange(this.spread, this.numPages);
+    };
+    slide.addEventListener("transitionend", finish);
+    setTimeout(finish, 900);
+  }
+
   dragTo(p) {                            // p in 0..1 (1 = fully turned)
+    if (this._slide) { this._slideTo(p); return; }
     if (!this._flip) return;
     const clamped = Math.max(0, Math.min(1.04, p));
     const deg = this._flipDir === "forward" ? -180 * clamped : -180 * (1 - clamped);
@@ -163,12 +323,40 @@ export class Book {
   }
 
   commitDrag() {
+    if (this._slide) {
+      this._finishSlide(this._slideDir === "forward" ? this._slideFrom + 1 : this._slideFrom - 1);
+      return;
+    }
     if (!this._flip) return;
     const newSpread = this._flipDir === "forward" ? this.spread + 2 : this.spread - 2;
     this._animateTo(this._flipDir === "forward" ? -180 : 0, newSpread);
   }
 
   cancelDrag() {
+    if (this._slide) {
+      const slide = this._slide;
+      slide.classList.add("anim");
+      slide.getBoundingClientRect();
+      const home = this._slideDir === "forward" ? 0 : -100;
+      requestAnimationFrame(() => { slide.style.transform = `translateX(${home}%)`; });
+      let done = false;
+      const restore = async () => {
+        if (done) return;
+        done = true;
+        slide.remove();
+        this._slide = null;
+        if (this._slideDir === "forward") {
+          // put the original page back on the main canvas
+          const { w, h } = this.pageBox();
+          await this.renderPage(this._slideFrom, this.rightCanvas, w, h);
+          this._applyReadTransform();
+        }
+        this.busy = false;
+      };
+      slide.addEventListener("transitionend", restore);
+      setTimeout(restore, 900);
+      return;
+    }
     if (!this._flip) { this.busy = false; return; }
     const startDeg = this._flipDir === "forward" ? 0 : -180;
     const flip = this._flip;

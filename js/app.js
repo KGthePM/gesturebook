@@ -26,8 +26,11 @@ const hint = $("hint");
 const dropOverlay = $("drop-overlay");
 const camOverlay = $("cam-overlay");
 const topbar = $("topbar");
+const modeToggle = $("mode-toggle");
+const modeFab = $("mode-fab");
 
 const SESSION_KEY = "gesturebook:session";
+const MODE_KEY = "gesturebook:mode";
 const ZOOM_LEVELS = [1, 1.25, 1.6, 2.0];
 let zoomIdx = 0;
 
@@ -44,10 +47,12 @@ const book = new Book({
   flipLayer: $("flip-layer"),
   onSpreadChange: (spread, numPages) => {
     pageLabel.textContent = book.label();
+    updateModeToggle();
     if (currentName) {
       try {
         localStorage.setItem(SESSION_KEY,
-          JSON.stringify({ name: currentName, spread, numPages }));
+          JSON.stringify({ name: currentName, spread, numPages,
+                           mode: book.readMode, page: book.page }));
       } catch (_) { /* storage unavailable — non-fatal */ }
     }
   },
@@ -95,6 +100,7 @@ function hideLoading() { loading.classList.add("hidden"); }
 
 async function openFile(file) {
   let coverDone = Promise.resolve();
+  const savedMode = preferredMode();
   try {
     coverDone = playCoverOpen(dropzone);     // v3: cover swings while PDF parses
     showLoading(`Opening ${file.name}…`);
@@ -119,25 +125,38 @@ async function openFile(file) {
     setTimeout(() => dropzone.classList.add("hidden"), 300);
 
     let restored = 0;
+    let restoredPage = 0;
     try {
       const saved = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
       if (saved && saved.name === file.name && saved.numPages === pdfDoc.numPages) {
         const maxSpread = Math.max(0, pdfDoc.numPages - 2);
         restored = Math.min(saved.spread | 0, maxSpread);
+        restoredPage = Math.min(saved.page | 0 || 1, pdfDoc.numPages);
       }
     } catch (_) { /* corrupt session — start fresh */ }
 
     await book.setDocument(pdfDoc);
-    if (restored > 0) {
+    if (savedMode === "single") {
+      book.page = Math.max(1, restoredPage);
+      await book.setReadMode("single");   // re-applies class + renders this.page
+      book.page = Math.max(1, restoredPage);
+      await book.renderPage(book.page, book.rightCanvas,
+        ...Object.values(book.pageBox()));
+    } else if (restored > 0) {
       book.spread = restored;
       await book.renderSpread();
-      setStatus(`resumed ${file.name} at page ${restored + 1}`);
+    }
+    if (savedMode === "single" || restored > 0) {
+      setStatus(savedMode === "single"
+        ? `resumed ${file.name} at page ${book.page}`
+        : `resumed ${file.name} at page ${restored + 1}`);
     } else {
       setStatus(`opened ${file.name} \u00b7 ${pdfDoc.numPages} pages`);
     }
     hint.classList.remove("fade");
     setTimeout(() => hint.classList.add("fade"), 9000);
     wakeChrome();
+    if (gestures.running && modeFab) modeFab.classList.remove("hidden");
   } catch (e) {
     setStatus("could not open: " + (e && e.message ? e.message : e));
     dropzone.classList.remove("cover-open", "fade-out");   // re-close the book
@@ -173,6 +192,7 @@ window.addEventListener("drop", (e) => {
 window.addEventListener("keydown", (e) => {
   if (e.key === "ArrowRight") book.turnForward();
   if (e.key === "ArrowLeft") book.turnBackward();
+  if (e.key === "s" || e.key === "S") toggleReadMode();
 });
 
 let resizeTimer = null;
@@ -181,12 +201,45 @@ window.addEventListener("resize", () => {
   resizeTimer = setTimeout(() => { if (book.pdfDoc && !book.busy) book.renderSpread(); }, 200);
 });
 
+/* ---------- v3: read-mode toggle ---------- */
+
+function updateModeToggle() {
+  const label = book.isSingle ? "Book view" : "Read view";
+  const pressed = String(book.isSingle);
+  if (modeToggle) {
+    modeToggle.textContent = label;
+    modeToggle.setAttribute("aria-pressed", pressed);
+    modeToggle.classList.toggle("active", book.isSingle);
+  }
+  if (modeFab) {
+    modeFab.setAttribute("aria-pressed", pressed);
+  }
+}
+
+function toggleReadMode() {
+  if (!book.pdfDoc) { setStatus("open a PDF first"); return; }
+  book.setReadMode(book.isSingle ? "book" : "single");
+  updateModeToggle();
+  try { localStorage.setItem(MODE_KEY, book.readMode); } catch (_) {}
+  setStatus(book.isSingle
+    ? "read view \u00b7 one page \u00b7 two-hand zoom \u00b7 pinch to pan"
+    : "book view \u00b7 two-page spread");
+}
+if (modeToggle) modeToggle.addEventListener("click", toggleReadMode);
+if (modeFab) modeFab.addEventListener("click", toggleReadMode);
+
+/* restore preferred mode across sessions (applied when a PDF opens) */
+function preferredMode() {
+  try { return localStorage.getItem(MODE_KEY) || "book"; } catch (_) { return "book"; }
+}
+
 /* ---------- gestures ---------- */
 
 const gestures = new GestureEngine({
   video: $("cam-video"),
   overlayCanvas: { getContext: () => ({ clearRect: () => {} }) },  // stub: preview removed
   pointerEl: $("hand-pointer"),
+  dwellEl: modeFab,
   callbacks: {
     canDrag: (dir) => book.canDrag(dir),
     onDragStart: (dir) => book.beginDrag(dir),
@@ -201,6 +254,28 @@ const gestures = new GestureEngine({
     },
     onPalmHold: () => wakeChrome({ pin: true }),
     onStatus: (text) => setStatus(text),
+
+    /* v3: two-hand zoom (single mode) */
+    onReadZoomAnchor: () => book.readZoom,
+    onReadZoom: (factor) => {
+      if (!book.isSingle) return;
+      book.setReadZoom(factor);
+      setStatus(book.readZoom <= 1.01 ? "zoom reset" : `zoom ${Math.round(book.readZoom * 100)}%`, { quiet: true });
+    },
+
+    /* v3: pinch-pan while zoomed in single mode */
+    canPan: () => book.isSingle && book.readZoom > 1.01,
+    onPanStart: () => {},
+    onPanMove: (dx, dy) => book.readPan(dx, dy),
+    onPanEnd: () => { book._applyReadTransform(); },
+
+    /* v3: dwell-to-toggle (pinch-hold the mode button ~2s) */
+    onDwell: (p) => {
+      if (!modeFab) return;
+      modeFab.style.setProperty("--dwell", String(p));
+      modeFab.classList.toggle("dwelling", p > 0);
+    },
+    onDwellToggle: () => toggleReadMode(),
   },
 });
 
@@ -209,6 +284,7 @@ camToggle.addEventListener("click", async () => {
     gestures.stop();
     camOverlay.classList.add("hidden");
     camToggle.textContent = "Start camera";
+    if (modeFab) modeFab.classList.add("hidden");
     setStatus("camera off");
     return;
   }
@@ -218,6 +294,7 @@ camToggle.addEventListener("click", async () => {
     setStatus("starting camera\u2026");
     await gestures.start();
     camToggle.textContent = "Stop camera";
+    if (book.pdfDoc && modeFab) modeFab.classList.remove("hidden");
     setStatus("camera on \u00b7 swipe to turn pages");
   } catch (e) {
     camOverlay.classList.add("hidden");
