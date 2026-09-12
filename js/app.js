@@ -198,7 +198,7 @@ window.addEventListener("keydown", (e) => {
 let resizeTimer = null;
 window.addEventListener("resize", () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => { if (book.pdfDoc && !book.busy) book.renderSpread(); }, 200);
+  resizeTimer = setTimeout(() => { if (book.pdfDoc && !book.busy) book.renderCurrent(); }, 200);
 });
 
 /* ---------- v3: read-mode toggle ---------- */

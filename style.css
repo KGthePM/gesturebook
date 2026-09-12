@@ -333,6 +333,10 @@ body {
 /* ---------- v3: single-page read mode ---------- */
 html.single-mode #book .page.left { display: none; }
 html.single-mode #book::after { display: none; }          /* no spine for one page */
+html.single-mode #flip-layer {
+  overflow: hidden;    /* single mode is one page wide; contain the slide's translateX */
+  border-radius: 10px;
+}
 html.single-mode .page {
   width: min(60vw, 82vh); aspect-ratio: 1 / 1.414;
   border-radius: 10px;

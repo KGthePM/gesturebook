@@ -155,6 +155,16 @@ export class Book {
     if (this.onSpreadChange) this.onSpreadChange(this.spread, this.numPages);
   }
 
+  /* Mode-aware re-render for resize: single mode tracks `page`, not `spread`. */
+  async renderCurrent() {
+    if (this.isSingle) {
+      await this.renderPage(this.page, this.rightCanvas, ...Object.values(this.pageBox()));
+      this._applyReadTransform();
+    } else {
+      await this.renderSpread();
+    }
+  }
+
   label() {
     if (!this.pdfDoc) return "No PDF loaded";
     const n = this.numPages;
@@ -294,10 +304,18 @@ export class Book {
     const to = this._slideDir === "forward" ? -100 : 0;
     requestAnimationFrame(() => { slide.style.transform = `translateX(${to}%)`; });
     let done = false;
-    const finish = () => {
+    const finish = async () => {
       if (done) return;
       done = true;
       this.page = newPage;
+      if (this._slideDir === "backward") {
+        // the incoming page was only ever drawn on the slide's own throwaway
+        // canvas — sync it onto rightCanvas before uncovering it, or the old
+        // page's stale pixels show through once the slide is removed.
+        const { w, h } = this.pageBox();
+        await this.renderPage(this.page, this.rightCanvas, w, h);
+        this._applyReadTransform();
+      }
       slide.remove();
       this._slide = null;
       this.busy = false;
