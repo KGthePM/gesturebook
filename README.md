@@ -16,11 +16,14 @@ A `sample.pdf` (8 pages) is included — regenerate with `python3 generate_sampl
 
 | Input | Action |
 |---|---|
-| Swipe hand left / right | Turn to next / previous spread (page follows your hand mid-swipe) |
-| Pinch (thumb+index) | Zoom in · finger-spread zooms back out |
+| Swipe hand left / right | Turn to next / previous spread (page follows your hand mid-swipe; mirrored to selfie view) |
 | Open palm, hold ~1s | Bring back the top controls |
 | ← / → keys | Turn pages without the camera |
 | Drag-and-drop / Open PDF | Load any PDF |
+
+A soft green ring tracks your index fingertip over the book for spatial feedback
+(no camera feed shown). Zoom gestures (pinch/spread) are currently disabled —
+flip `ENABLE_ZOOM` in `js/gestures.js` to experiment.
 
 Last PDF name and page are remembered via localStorage and restored when you
 reopen the same file.

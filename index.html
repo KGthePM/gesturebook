@@ -66,12 +66,14 @@
 
 <div id="status-pill" aria-live="polite">Open a PDF to begin</div>
 
-<div id="hint">Swipe left · next page&nbsp;&nbsp;&nbsp;Swipe right · previous&nbsp;&nbsp;&nbsp;Pinch · zoom in&nbsp;&nbsp;&nbsp;Spread · zoom out&nbsp;&nbsp;&nbsp;Open palm · controls&nbsp;&nbsp;&nbsp;← → keys work too</div>
+<div id="hint">Swipe left · next page&nbsp;&nbsp;&nbsp;Swipe right · previous&nbsp;&nbsp;&nbsp;Open palm · controls&nbsp;&nbsp;&nbsp;← → keys work too</div>
 
-<div id="cam-overlay" class="hidden">
+<!-- video stays in DOM (gesture engine needs the stream) but is never shown -->
+<div id="cam-overlay" class="hidden" aria-hidden="true">
   <video id="cam-video" autoplay playsinline muted></video>
-  <canvas id="cam-canvas"></canvas>
 </div>
+
+<div id="hand-pointer" aria-hidden="true"><div class="hp-ring"></div></div>
 
 <script type="module" src="js/app.js"></script>
 </body>

@@ -179,7 +179,8 @@ window.addEventListener("resize", () => {
 
 const gestures = new GestureEngine({
   video: $("cam-video"),
-  overlayCanvas: $("cam-canvas"),
+  overlayCanvas: { getContext: () => ({ clearRect: () => {} }) },  // stub: preview removed
+  pointerEl: $("hand-pointer"),
   callbacks: {
     canDrag: (dir) => book.canDrag(dir),
     onDragStart: (dir) => book.beginDrag(dir),

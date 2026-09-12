@@ -194,16 +194,29 @@ body {
 }
 #hint.fade { opacity: 0; }
 
-/* ---------- camera preview ---------- */
-#cam-overlay {
-  position: fixed; top: 66px; right: 18px; z-index: 45;
-  width: 240px; aspect-ratio: 4 / 3; border-radius: 14px; overflow: hidden;
-  border: 1px solid rgba(255,255,255,0.12);
-  background: #0b0c0e;
-  box-shadow: 0 14px 40px rgba(0,0,0,0.55);
-  opacity: 0.96;
+/* ---------- hand pointer (replaces camera preview) ---------- */
+#cam-overlay { display: none; }   /* video kept for the stream, never shown */
+#cam-video { display: none; }
+
+#hand-pointer {
+  position: fixed; left: 0; top: 0; z-index: 60;
+  width: 0; height: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 220ms ease;
+  will-change: transform;
 }
-#cam-video { width: 100%; height: 100%; object-fit: cover; display: block;
-             transform: scaleX(-1); filter: saturate(0.85) contrast(1.02); }
-#cam-canvas { position: absolute; inset: 0; width: 100%; height: 100%;
-              transform: scaleX(-1); }
+#hand-pointer.on { opacity: 1; }
+#hand-pointer .hp-ring {
+  position: absolute;
+  left: -17px; top: -17px;             /* center the ring on the fingertip */
+  width: 34px; height: 34px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(140, 225, 170, 0.9);
+  background:
+    radial-gradient(circle, rgba(140,225,170,0.28) 0%, rgba(140,225,170,0.10) 45%, transparent 70%);
+  box-shadow:
+    0 0 18px rgba(140, 225, 170, 0.35),
+    inset 0 0 10px rgba(140, 225, 170, 0.18);
+  backdrop-filter: blur(1.5px);
+}

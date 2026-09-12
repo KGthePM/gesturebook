@@ -1,5 +1,8 @@
-/* gestures.js — MediaPipe HandLandmarker driving page-follow swipes,
- * pinch/spread zoom, and open-palm hold.
+/* gestures.js — MediaPipe HandLandmarker driving page-follow swipes.
+ *
+ * Coordinates are MIRRORED to selfie view (1 - x) so moving your hand left
+ * on your side moves the pointer left on screen and turns to the NEXT page —
+ * matching natural "flick the page away" intuition.
  *
  * Swipe state machine:
  *   idle → (wrist moves ≥ ENGAGE in ≤150ms) → dragging
@@ -7,6 +10,9 @@
  *     commit  when progress > 0.55 or flick velocity ≥ FLICK
  *     cancel  when hand retreats or is lost
  *   cooldown 700ms, then idle.
+ *
+ * Zoom gestures are DISABLED for now (ENABLE_ZOOM=false) — pinch/spread
+ * misfired during swipes and fought the page turns.
  */
 
 import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
@@ -21,23 +27,17 @@ const TRACK_SPAN = 0.40;    // hand travel (normalized x) for a full page turn
 const COMMIT_AT = 0.55;     // progress past which a drag commits
 const COOLDOWN_MS = 700;
 
-const PINCH_IN = 0.32;      // thumb-index distance / hand-span thresholds
-const SPREAD_OUT = 1.12;
-const PINCH_LOCK_MS = 800;
-
 const PALM_HOLD_MS = 1000;  // open palm held → show controls
 
-const HAND_CONNECTIONS = [
-  [0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],
-  [9,13],[13,14],[14,15],[15,16],[13,17],[17,18],[18,19],[19,20],[0,17],
-];
+const ENABLE_ZOOM = false; // pinch/spread zoom off for now (misfired during swipes)
 
 const d = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
 export class GestureEngine {
-  constructor({ video, overlayCanvas, callbacks }) {
+  constructor({ video, overlayCanvas, pointerEl, callbacks }) {
     this.video = video;
-    this.overlayCanvas = overlayCanvas;
+    this.overlayCanvas = overlayCanvas;   // kept for API compat; no longer drawn
+    this.pointerEl = pointerEl;           // fingertip glow element over the book
     this.cb = callbacks;   // { canDrag, onDragStart, onDragProgress, onDragCommit,
                            //   onDragCancel, onZoom, onPalmHold, onStatus }
     this.landmarker = null;
@@ -90,6 +90,7 @@ export class GestureEngine {
     ctx.clearRect(0, 0, this.overlayCanvas.width, this.overlayCanvas.height);
     if (this.state === "dragging") { this._cancel(); }
     this.state = "idle";
+    if (this.pointerEl) this.pointerEl.classList.remove("on");
   }
 
   /* ---------- per-frame ---------- */
@@ -102,7 +103,7 @@ export class GestureEngine {
       const now = performance.now();
       const res = this.landmarker.detectForVideo(this.video, now);
       this._process(res, now);
-      this._draw(res);
+      this._pointer(res);
     }
     requestAnimationFrame(() => this._loop());
   }
@@ -120,7 +121,7 @@ export class GestureEngine {
     }
 
     const lm = res.landmarks[0];
-    const x = lm[0].x;
+    const x = 1 - lm[0].x;   // mirror to selfie view: hand-left = screen-left
     this.buf.push({ t: now, x });
     while (this.buf.length && now - this.buf[0].t > WINDOW_MS) this.buf.shift();
     const dx = x - this.buf[0].x;
@@ -148,8 +149,10 @@ export class GestureEngine {
       }
     }
 
-    this._pinch(lm, now);
-    this._palm(lm, now);
+    if (ENABLE_ZOOM) {
+      this._pinch(lm, now);
+      this._palm(lm, now);
+    }
   }
 
   _engage(dir, x, now) {
@@ -205,39 +208,20 @@ export class GestureEngine {
     }
   }
 
-  /* ---------- preview skeleton ---------- */
-
-  _draw(res) {
-    const c = this.overlayCanvas;
-    if (c.width !== this.video.videoWidth || c.height !== this.video.videoHeight) {
-      c.width = this.video.videoWidth || 320;
-      c.height = this.video.videoHeight || 240;
+  /* ---------- on-book fingertip pointer ----------
+   * Instead of a POV camera feed, a soft glow tracks the index fingertip
+   * (mirrored) over the whole viewport — spatial feedback without video. */
+  _pointer(res) {
+    const el = this.pointerEl;
+    if (!el) return;
+    if (!res.landmarks || !res.landmarks.length) {
+      el.classList.remove("on");
+      return;
     }
-    const ctx = c.getContext("2d");
-    ctx.clearRect(0, 0, c.width, c.height);
-    if (!res.landmarks || !res.landmarks.length) return;
-    const lm = res.landmarks[0];
-    ctx.strokeStyle = "rgba(140, 225, 170, 0.85)";
-    ctx.lineWidth = 2;
-    ctx.lineCap = "round";
-    for (const [a, b] of HAND_CONNECTIONS) {
-      ctx.beginPath();
-      ctx.moveTo(lm[a].x * c.width, lm[a].y * c.height);
-      ctx.lineTo(lm[b].x * c.width, lm[b].y * c.height);
-      ctx.stroke();
-    }
-    ctx.fillStyle = "#ffd166";
-    for (const p of lm) {
-      ctx.beginPath();
-      ctx.arc(p.x * c.width, p.y * c.height, 2.6, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    // highlight thumb–index pinch pair
-    ctx.fillStyle = "#8ab4f8";
-    for (const i of [4, 8]) {
-      ctx.beginPath();
-      ctx.arc(lm[i].x * c.width, lm[i].y * c.height, 4, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    const tip = res.landmarks[0][8];       // index fingertip
+    const x = (1 - tip.x) * window.innerWidth;
+    const y = tip.y * window.innerHeight;
+    el.style.transform = `translate(${x}px, ${y}px)`;
+    el.classList.add("on");
   }
 }
