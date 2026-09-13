@@ -4,6 +4,7 @@
 import { Book } from "./book.js";
 import { GestureEngine } from "./gestures.js";
 import { initThemePicker, playCoverOpen } from "./theme.js";
+import { savePdf, loadPdf, clearPdf } from "./storage.js";
 
 const pdfjsLib = window.pdfjsLib;
 if (pdfjsLib) {
@@ -28,6 +29,9 @@ const camOverlay = $("cam-overlay");
 const topbar = $("topbar");
 const modeToggle = $("mode-toggle");
 const modeFab = $("mode-fab");
+const pageJumpInput = $("page-jump-input");
+const tocToggle = $("toc-toggle");
+const tocPanel = $("toc-panel");
 
 const SESSION_KEY = "gesturebook:session";
 const MODE_KEY = "gesturebook:mode";
@@ -46,7 +50,7 @@ const book = new Book({
   rightCanvas: $("canvas-right"),
   flipLayer: $("flip-layer"),
   onSpreadChange: (spread, numPages) => {
-    pageLabel.textContent = book.label();
+    pageLabel.textContent = `${progressPercent()}% · ${book.label()}`;
     updateModeToggle();
     if (currentName) {
       try {
@@ -57,6 +61,12 @@ const book = new Book({
     }
   },
 });
+
+function progressPercent() {
+  if (!book.pdfDoc) return 0;
+  const cur = book.isSingle ? book.page : Math.min(book.spread + 2, book.numPages);
+  return Math.round((cur / book.numPages) * 100);
+}
 
 /* ---------- status pill ---------- */
 
@@ -99,12 +109,15 @@ function showLoading(title) {
 function hideLoading() { loading.classList.add("hidden"); }
 
 async function openFile(file) {
+  return openBuffer(file.name, await file.arrayBuffer());
+}
+
+async function openBuffer(name, buf, { isRestore = false } = {}) {
   let coverDone = Promise.resolve();
   const savedMode = preferredMode();
   try {
     coverDone = playCoverOpen(dropzone);     // v3: cover swings while PDF parses
-    showLoading(`Opening ${file.name}…`);
-    const buf = await file.arrayBuffer();
+    showLoading(isRestore ? `Resuming ${name}…` : `Opening ${name}…`);
     const task = pdfjsLib.getDocument({
       data: buf,
       onProgress: ({ loaded, total }) => {
@@ -117,8 +130,9 @@ async function openFile(file) {
     });
     const pdfDoc = await task.promise;
 
-    currentName = file.name;
+    currentName = name;
     zoomIdx = 0;
+    if (!isRestore) savePdf(name, buf);
     await coverDone;                          // let the cover finish its swing
     dropzone.classList.add("fade-out");       // short cross-fade to reader
     bookEl.classList.remove("hidden");
@@ -128,7 +142,7 @@ async function openFile(file) {
     let restoredPage = 0;
     try {
       const saved = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
-      if (saved && saved.name === file.name && saved.numPages === pdfDoc.numPages) {
+      if (saved && saved.name === name && saved.numPages === pdfDoc.numPages) {
         const maxSpread = Math.max(0, pdfDoc.numPages - 2);
         restored = Math.min(saved.spread | 0, maxSpread);
         restoredPage = Math.min(saved.page | 0 || 1, pdfDoc.numPages);
@@ -153,17 +167,23 @@ async function openFile(file) {
     }
     if (restoringReader || restored > 0) {
       setStatus(restoringReader
-        ? `resumed ${file.name} at page ${book.page}`
-        : `resumed ${file.name} at page ${restored + 1}`);
+        ? `resumed ${name} at page ${book.page}`
+        : `resumed ${name} at page ${restored + 1}`);
     } else {
-      setStatus(`opened ${file.name} \u00b7 ${pdfDoc.numPages} pages`);
+      setStatus(`opened ${name} \u00b7 ${pdfDoc.numPages} pages`);
     }
     hint.classList.remove("fade");
     setTimeout(() => hint.classList.add("fade"), 9000);
     wakeChrome();
     if (gestures.running && modeFab) modeFab.classList.remove("hidden");
+    await updateOutline(pdfDoc);
   } catch (e) {
-    setStatus("could not open: " + (e && e.message ? e.message : e));
+    if (isRestore) {
+      clearPdf();
+      setStatus("Open a PDF to begin");
+    } else {
+      setStatus("could not open: " + (e && e.message ? e.message : e));
+    }
     dropzone.classList.remove("cover-open", "fade-out");   // re-close the book
   } finally {
     hideLoading();
@@ -207,6 +227,87 @@ window.addEventListener("resize", () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => { if (book.pdfDoc && !book.busy) book.renderCurrent(); }, 200);
 });
+
+/* ---------- tap-to-jump: click the page label to type a page number ---------- */
+
+function openPageJump() {
+  if (!book.pdfDoc || !pageJumpInput) return;
+  pageLabel.classList.add("hidden");
+  pageJumpInput.classList.remove("hidden");
+  pageJumpInput.max = String(book.numPages);
+  pageJumpInput.value = String(book.isSingle ? book.page : book.spread + 1);
+  pageJumpInput.focus();
+  pageJumpInput.select();
+}
+function closePageJump() {
+  if (!pageJumpInput) return;
+  pageJumpInput.classList.add("hidden");
+  pageLabel.classList.remove("hidden");
+}
+if (pageJumpInput) {
+  pageLabel.addEventListener("click", openPageJump);
+  pageJumpInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      const n = parseInt(pageJumpInput.value, 10);
+      closePageJump();
+      if (Number.isFinite(n) && !book.goToPage(n)) setStatus("still turning — try again");
+    } else if (e.key === "Escape") {
+      closePageJump();
+    }
+  });
+  pageJumpInput.addEventListener("blur", closePageJump);
+}
+
+/* ---------- table of contents (PDF outline, when present) ---------- */
+
+async function destToPage(dest) {
+  const explicit = typeof dest === "string" ? await book.pdfDoc.getDestination(dest) : dest;
+  if (!explicit || !explicit[0]) return null;
+  return (await book.pdfDoc.getPageIndex(explicit[0])) + 1;
+}
+
+function renderOutline(items) {
+  const ul = document.createElement("ul");
+  for (const item of items) {
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.setAttribute("role", "menuitem");
+    btn.textContent = item.title;
+    btn.addEventListener("click", async () => {
+      const n = await destToPage(item.dest);
+      tocPanel.classList.add("hidden");
+      tocToggle.setAttribute("aria-expanded", "false");
+      if (n && !book.goToPage(n)) setStatus("still turning — try again");
+    });
+    li.appendChild(btn);
+    if (item.items && item.items.length) li.appendChild(renderOutline(item.items));
+    ul.appendChild(li);
+  }
+  return ul;
+}
+
+async function updateOutline(pdfDoc) {
+  if (!tocToggle || !tocPanel) return;
+  tocPanel.classList.add("hidden");
+  tocToggle.setAttribute("aria-expanded", "false");
+  tocPanel.replaceChildren();
+  tocToggle.classList.add("hidden");
+  let outline = null;
+  try { outline = await pdfDoc.getOutline(); } catch (_) { outline = null; }
+  if (outline && outline.length) {
+    tocPanel.appendChild(renderOutline(outline));
+    tocToggle.classList.remove("hidden");
+  }
+}
+
+if (tocToggle && tocPanel) {
+  tocToggle.addEventListener("click", () => {
+    const opening = tocPanel.classList.contains("hidden");
+    tocPanel.classList.toggle("hidden", !opening);
+    tocToggle.setAttribute("aria-expanded", String(opening));
+  });
+}
 
 /* ---------- v3: read-mode toggle (3-way: book -> single -> half -> book) ---------- */
 
@@ -309,5 +410,12 @@ camToggle.addEventListener("click", async () => {
   }
 });
 
-setStatus("Open a PDF to begin");
+(async () => {
+  const record = await loadPdf();
+  if (record && record.bytes) {
+    await openBuffer(record.name, record.bytes, { isRestore: true });
+  } else {
+    setStatus("Open a PDF to begin");
+  }
+})();
 initThemePicker();

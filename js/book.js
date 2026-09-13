@@ -499,6 +499,30 @@ export class Book {
     setTimeout(restore, 900);
   }
 
+  /* ---------- direct navigation (tap-to-jump, TOC) ----------
+   * Mode-aware jump to an arbitrary page, no animation — generalizes the
+   * direct spread/page assignment the old session-restore code hand-rolled. */
+  goToPage(pageNum) {
+    if (!this.pdfDoc || this.busy) return false;
+    const n = Math.max(1, Math.min(this.numPages, pageNum | 0));
+    if (this.isHalf) {
+      this.page = n;
+      this.jumpToPage(n, { smooth: true });
+      if (this.onSpreadChange) this.onSpreadChange(this.spread, this.numPages);
+      return true;
+    }
+    if (this.isSingle) {
+      this.page = n;
+      this.renderCurrentPage().then(() => {
+        if (this.onSpreadChange) this.onSpreadChange(this.spread, this.numPages);
+      });
+      return true;
+    }
+    this.spread = Math.max(0, Math.min(n - 1, Math.max(0, this.numPages - 2)));
+    this.renderSpread();   // already calls onSpreadChange internally
+    return true;
+  }
+
   /* ---------- keyboard / fallback triggered turns ---------- */
 
   async turnForward() {

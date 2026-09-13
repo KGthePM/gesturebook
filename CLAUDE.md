@@ -18,19 +18,26 @@ start the camera to exercise gestures.
 
 ## Architecture
 
-Three ES modules loaded by `index.html` via `<script type="module" src="js/app.js">`. All third-party
+Four ES modules loaded by `index.html` via `<script type="module" src="js/app.js">`. All third-party
 code comes from pinned CDNs at runtime — PDF.js 3.11.174 (global `window.pdfjsLib`, cdnjs),
 `@mediapipe/tasks-vision` 0.10.14 (ESM import in `gestures.js`, jsDelivr + its `/wasm` fileset), and
 the `hand_landmarker.task` float16 model from storage.googleapis.com. First load needs internet.
+The table-of-contents panel uses PDF.js's `getOutline()`/`getDestination()`/`getPageIndex()` to
+resolve outline entries to page numbers; the Contents button in `#topbar` stays hidden whenever a
+PDF has no outline (`getOutline()` returns null/empty — true of the generated `sample.pdf`).
 
 - **`js/app.js`** — entry point. Owns PDF loading (file input + full-window drag/drop), the loading
-  card, the status pill, chrome auto-hide, keyboard fallback, and localStorage session/mode restore.
-  It is the only place that knows about DOM ids; `book.js` and `gestures.js` receive elements.
+  card, the status pill, chrome auto-hide, keyboard fallback, the IndexedDB/localStorage
+  restore-on-load boot sequence, and the tap-to-jump/table-of-contents UI. It is the only place
+  that knows about DOM ids; `book.js` and `gestures.js` receive elements.
 - **`js/book.js`** — `Book` class: all PDF.js rendering and page-turn animation. Holds the three
   view modes and their separate coordinate systems.
 - **`js/gestures.js`** — `GestureEngine`: MediaPipe HandLandmarker state machine. Knows nothing
   about pages or PDFs; it only calls the callbacks `app.js` passes in.
 - **`js/theme.js`** — theme persistence + the cover-open transition promise.
+- **`js/storage.js`** — IndexedDB wrapper caching the last-opened PDF's bytes, so a reload can
+  resume without the user re-picking the file. Same try/catch-everywhere philosophy as the
+  localStorage access below.
 
 ### app.js ↔ gestures.js contract
 
@@ -80,6 +87,11 @@ committed page turn always resets `readY = 0` (land at top); a cancelled one lea
 `pageBox()` deliberately measures the **right** page container — the left one is `display:none` in
 the reader modes and measuring it yielded a blank 1×1 canvas (see commit 3a93dcb).
 
+`Book.goToPage(pageNum)` is the mode-aware direct-jump primitive (no animation, respects
+`this.busy`) used by tap-to-jump and the table-of-contents panel in `app.js`. It generalizes the
+same direct spread/page assignment the session-restore code in `app.js` already did by hand — reuse
+it for any future "jump to an arbitrary page" feature rather than re-deriving the per-mode branch.
+
 ### Gesture state machine
 
 States: `idle → grabbing → dragging | panning → cooldown`. Two ways to turn a page:
@@ -127,6 +139,20 @@ Motion respects `prefers-reduced-motion` in `theme.js` (`playCoverOpen` resolves
 `gesturebook:session` (`{name, spread, page, numPages, mode}`, restored only when filename **and**
 page count match), `gesturebook:mode`, `gesturebook:theme`. Every access is wrapped in try/catch —
 storage being unavailable must never be fatal.
+
+### IndexedDB
+
+`js/storage.js` owns a `gesturebook` database (v1), object store `pdf`, single fixed key
+`"current"` — one PDF slot, no recent-files list. Record shape: `{ name, size, bytes, savedAt }`
+with `bytes` as the raw `ArrayBuffer` PDF.js was given. Written on every successful
+*user-initiated* open (`app.js`'s `openBuffer`, `!isRestore`), which naturally overwrites the slot
+when a different file is opened; cleared only when a restore attempt itself fails, so a corrupted
+record doesn't keep failing on every future reload. `app.js` calls `loadPdf()` once at boot and,
+if a record exists, reopens it through the same `openBuffer` code path used for a manual open
+(`isRestore: true`) — the existing `gesturebook:session` position/mode restore applies exactly as
+it does for a manually re-picked file. If IndexedDB is unavailable/blocked, every call resolves to
+a safe fallback (`null`/no-op) instead of throwing, and the app behaves exactly as it did before
+this feature existed.
 
 ## Notes
 

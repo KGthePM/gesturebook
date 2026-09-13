@@ -33,13 +33,17 @@
   <input type="file" id="pdf-file" accept="application/pdf" hidden>
   <button class="btn quiet" id="cam-toggle">Start camera</button>
   <button class="btn quiet" id="mode-toggle" aria-pressed="false" title="Cycle Book / Read / Half-page view (or press S)">Read view</button>
+  <button class="btn quiet hidden" id="toc-toggle" aria-haspopup="true" aria-expanded="false" title="Table of contents">Contents</button>
   <div class="theme-picker" id="theme-picker" role="group" aria-label="Reading-room theme">
     <button class="theme-opt" data-set-theme="classic" aria-pressed="true" title="Classic charcoal">Classic</button>
     <button class="theme-opt" data-set-theme="seattle" aria-pressed="false" title="Seattle rain">Seattle</button>
     <button class="theme-opt" data-set-theme="boston" aria-pressed="false" title="Boston lamplight">Boston</button>
   </div>
-  <span id="page-label">No PDF loaded</span>
+  <button type="button" id="page-label" title="Tap to jump to a page">No PDF loaded</button>
+  <input type="number" id="page-jump-input" class="hidden" min="1" inputmode="numeric" aria-label="Jump to page">
 </header>
+
+<div id="toc-panel" class="hidden" role="menu" aria-label="Table of contents"></div>
 
 <main id="stage">
 

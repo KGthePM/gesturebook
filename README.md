@@ -49,8 +49,15 @@ A soft green ring tracks your index fingertip over the book for spatial
 feedback (no camera feed shown). Two-hand zoom has been removed — Half-page
 view replaces it with a crisper, simpler way to read closer.
 
-Last PDF name, page/spread, and view mode are remembered via localStorage and
-restored when you reopen the same file.
+The last-opened PDF itself is cached in the browser (IndexedDB) and automatically
+resumes — reloading the page reopens it at the same page/spread and view mode with
+no clicks needed. If storage is unavailable, it falls back to the old behavior of
+remembering position/mode only, applied when you manually reopen the same file.
+
+Click the page counter to type a page number and jump straight to it, in any view
+mode. PDFs with bookmarks show a Contents button next to it; clicking an entry
+jumps to that page. A reading-progress percentage is shown alongside the page
+counter too.
 
 ## Stack
 
