@@ -5,9 +5,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-python3 -m http.server 8787      # serve from the repo root, then open http://localhost:8787
+./start.sh                      # serve on the first free port from 8787 up, print the URL, auto-open the browser
+python3 -m http.server 8787      # manual fallback: serve from the repo root, then open http://localhost:8787
 python3 generate_sample.py       # regenerate sample.pdf (8 numbered pages, hand-rolled PDF 1.4)
 ```
+
+`start.sh` honors `PORT=`/`BIND=` env overrides and binds `127.0.0.1` by default.
 
 No build step, no package manager, no test suite. Editing a file and reloading the page is the whole
 dev loop. The camera needs a secure context — `localhost` counts, a `file://` URL does not, so always

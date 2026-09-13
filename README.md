@@ -12,6 +12,14 @@ is the drop target — click anywhere (or the pill) to browse for a file.
 
 ## Run
 
+    ./start.sh
+
+That picks the first free port from 8787 upward, prints the URL, and opens
+it in your browser. Overrides: `PORT=9000 ./start.sh` to start elsewhere,
+`BIND=0.0.0.0 ./start.sh` to also serve your local network.
+
+The manual equivalent:
+
     cd ~/apps/gesturebook
     python3 -m http.server 8787
     open http://localhost:8787
