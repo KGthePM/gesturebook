@@ -53,7 +53,7 @@ const PALM_HOLD_MS = 1000;    // open palm held → show controls
 
 const DWELL_MS = 2000;        // pinch-hold on the toggle button before it fires (lower = faster)
 const DWELL_PAD = 44;         // px of slack around the button that still counts as "on it"
-const PAN_GAIN = 1.15;        // page pans this multiple of hand movement (higher = faster pan)
+const PAN_GAIN = 2.4;         // page pans this multiple of hand movement (higher = faster pan)
 
 const ENABLE_ZOOM = false;    // legacy single-hand pinch/spread zoom (dormant)
 const PINCH_IN = 0.30;        // (zoom, dormant) ratio for zoom-in

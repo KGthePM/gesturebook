@@ -3,6 +3,8 @@
  * Exposes a drag API so gestures can steer the flip: beginDrag(dir) → dragTo(p) → commit/cancel.
  */
 
+const WHEEL_GAIN = 1.5;   // half-mode trackpad/wheel scroll speed multiplier
+
 export class Book {
   constructor({ bookEl, leftCanvas, rightCanvas, flipLayer, onSpreadChange }) {
     this.bookEl = bookEl;
@@ -100,6 +102,8 @@ export class Book {
     strip.scrollTop = this._halfSlots.get(this.page).slot.offsetTop;
     this._onHalfScroll = this._onHalfScroll.bind(this);
     strip.addEventListener("scroll", this._onHalfScroll);
+    this._onHalfWheel = this._onHalfWheel.bind(this);
+    strip.addEventListener("wheel", this._onHalfWheel, { passive: false });
 
     this._halfObserver = new IntersectionObserver((entries) => {
       for (const entry of entries) {
@@ -124,6 +128,7 @@ export class Book {
     if (!this._halfStrip) return;
     if (this._halfObserver) this._halfObserver.disconnect();
     this._halfStrip.removeEventListener("scroll", this._onHalfScroll);
+    this._halfStrip.removeEventListener("wheel", this._onHalfWheel);
     this._halfStrip.remove();
     this._halfStrip = null;
     this._halfSlots = null;
@@ -148,6 +153,16 @@ export class Book {
         if (this.onSpreadChange) this.onSpreadChange(this.spread, this.numPages);
       }
     });
+  }
+
+  /* Trackpad/mouse-wheel scroll (half mode only) — app-tunable speed via WHEEL_GAIN
+   * rather than relying on the browser's native (untunable) wheel-scroll speed. */
+  _onHalfWheel(e) {
+    e.preventDefault();
+    const delta = e.deltaMode === 1 ? e.deltaY * 16
+                : e.deltaMode === 2 ? e.deltaY * this._halfStrip.clientHeight
+                : e.deltaY;
+    this._halfStrip.scrollTop += delta * WHEEL_GAIN;
   }
 
   /* Vertical scroll by pixels of pinch-hand movement (half mode only). */
