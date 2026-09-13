@@ -4,6 +4,12 @@ A local PDF reader you turn and scroll with webcam hand gestures (MediaPipe
 HandLandmarker). Dark reading-room UI, no build step, no dependencies to
 install.
 
+The landing page stages the closed book like a product shot: serif headline
+("Turn pages with a pinch.") above a spotlit, gently floating book with a
+hover sheen, an "Open a PDF" pill below it, and a per-theme backdrop
+(classic dusk wash, Seattle rain, Boston lamplight). The whole landing page
+is the drop target — click anywhere (or the pill) to browse for a file.
+
 ## Run
 
     cd ~/apps/gesturebook

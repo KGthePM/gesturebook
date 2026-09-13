@@ -18,9 +18,10 @@
   /* home reading-room per-theme accents */
   --cover: linear-gradient(145deg, #2b2d33, #1c1e23 60%, #17181c);
   --cover-emboss: rgba(233, 231, 226, 0.5);
-  --glow-a: rgba(190, 205, 235, 0.10);   /* classic: soft white-blue */
-  --glow-b: rgba(170, 190, 230, 0.07);
-  --glow-c: rgba(200, 210, 235, 0.05);
+  --glow-a: rgba(156, 166, 255, 0.11);   /* classic: dusk blue-violet wash */
+  --glow-b: rgba(122, 136, 235, 0.07);
+  --glow-c: rgba(168, 148, 240, 0.05);
+  --spot: rgba(148, 158, 255, 0.10);     /* spotlight cone tint */
   --lamp: none;                          /* classic: no lamp */
 }
 
@@ -40,6 +41,7 @@
   --glow-a: rgba(84, 113, 138, 0.11);    /* cool rain-blue */
   --glow-b: rgba(176, 141, 111, 0.05);   /* faint coffee */
   --glow-c: rgba(63, 93, 71, 0.05);      /* evergreen breath */
+  --spot: rgba(120, 160, 205, 0.10);
   --lamp: none;
 }
 
@@ -59,6 +61,7 @@
   --glow-a: rgba(224, 178, 104, 0.10);   /* lamp glow */
   --glow-b: rgba(200, 151, 63, 0.06);
   --glow-c: rgba(110, 63, 53, 0.05);     /* faint brick warmth */
+  --spot: rgba(224, 178, 104, 0.12);
   --lamp: radial-gradient(560px 420px at 50% 32%, rgba(224, 178, 104, 0.14), transparent 70%);
 }
 
@@ -163,18 +166,19 @@ body {
 
 /* ---------- v3 Reading Room home ---------- */
 #dropzone {
-  --book-w: 300px;
+  --book-w: min(310px, 32vh);
+  --dz-gap: clamp(20px, 3.4vh, 30px);
   cursor: pointer;
   perspective: 1600px;
   perspective-origin: 50% 45%;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 42px;
-  padding: 90px 40px 60px;                 /* clears the topbar */
+  gap: var(--dz-gap);
+  padding: 76px 32px 48px;                 /* clears the topbar */
   contain: layout paint;
 }
 
 /* warm light pool — stacked radial blooms, one light source, compositor-only breathe */
-.glow, .lamp {
+.glow, .lamp, .spotlight {
   position: absolute; inset: 0; pointer-events: none;
   border-radius: 50%;                      /* harmless on inset:0 */
 }
@@ -185,6 +189,16 @@ body {
 .g2 { background: radial-gradient(ellipse at 50% 36%, var(--glow-b), transparent 72%); }
 .g3 { background: radial-gradient(ellipse at 50% 40%, var(--glow-c), transparent 74%); }
 .lamp { background: var(--lamp); }
+
+/* spotlight cone falling onto the book — soft conic wedge, masked out by mid-stage */
+.spotlight {
+  border-radius: 0;
+  background: conic-gradient(from 0deg at 50% -6%,
+    transparent 158deg, var(--spot) 180deg, transparent 202deg);
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent 68%);
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,0.9), transparent 68%);
+  opacity: 0.85; will-change: opacity;
+}
 
 /* dust motes — two stacked radial-gradient dot layers, transform-only drift */
 .motes {
@@ -246,8 +260,19 @@ body {
   transform: translateZ(2px);
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
+  overflow: hidden;                        /* clips the sheen sweep */
   display: flex; align-items: center; justify-content: center;
   transition: transform 700ms var(--ease), box-shadow 700ms var(--ease);
+}
+/* specular sheen — sits off-cover until hovered, then sweeps across */
+.bc-cover::before {
+  content: ""; position: absolute; inset: -1px;
+  background: linear-gradient(105deg,
+    transparent 32%, rgba(255,255,255,0.10) 46%,
+    rgba(255,255,255,0.26) 50%,
+    rgba(255,255,255,0.10) 54%, transparent 68%);
+  transform: translateX(-130%);
+  pointer-events: none;
 }
 .bc-mark {
   font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
@@ -293,23 +318,76 @@ body {
   transform: translateZ(-40px);
 }
 
-/* one light source: layered contact + cast shadow under the book */
+/* one light source: layered contact shadow on the book, ground pool below */
 .book-closed { filter: none; }
 .book-closed .bc-page {
   box-shadow:
     0 1px 2px rgba(0,0,0,0.28),
     0 4px 8px rgba(0,0,0,0.22),
-    0 12px 24px rgba(0,0,0,0.18),
-    0 24px 48px rgba(0,0,0,0.12);
+    0 12px 24px rgba(0,0,0,0.16);
+}
+/* ground shadow — a flex sibling of the book so it stays put while the book floats */
+.bc-shadow {
+  width: calc(var(--book-w) * 0.82);
+  height: 20px;
+  margin-top: calc(var(--dz-gap) * -0.45);
+  border-radius: 50%;
+  background: radial-gradient(50% 50% at 50% 50%, rgba(0,0,0,0.55), transparent 70%);
+  filter: blur(5px);
+  opacity: 0.55;
+  will-change: transform, opacity;
 }
 
-.dz-hint {
+/* ---------- hero copy + CTA ---------- */
+.dz-copy { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; }
+.dz-headline {
   margin: 0;
-  font-size: 12px; color: var(--text-dim);
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  font-size: clamp(30px, 4.4vw, 48px);
+  font-weight: 500;
+  line-height: 1.08;
+  letter-spacing: 0.2px;
+  color: var(--text);
+}
+.dz-sub {
+  margin: 0;
+  font-size: 15.5px;
+  color: var(--text-dim);
+  letter-spacing: 0.2px;
+}
+
+.dz-actions { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.dz-cta {
+  appearance: none; border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.08);
+  backdrop-filter: blur(8px) saturate(1.2);
+  -webkit-backdrop-filter: blur(8px) saturate(1.2);
+  color: var(--text); font: inherit; font-size: 14px; font-weight: 500;
+  padding: 11px 28px; border-radius: 999px; cursor: pointer;
+  box-shadow: 0 8px 26px rgba(0,0,0,0.28);
+  transition: background 220ms var(--ease), border-color 220ms var(--ease),
+              transform 220ms var(--ease);
+}
+.dz-cta:hover {
+  background: rgba(255,255,255,0.15);
+  border-color: rgba(255,255,255,0.26);
+  transform: translateY(-1px);
+}
+.dz-cta:active { transform: translateY(0); }
+.dz-alt {
+  margin: 0;
+  font-size: 12.5px; color: var(--text-dim);
+  font-variant: small-caps; letter-spacing: 1.8px;
+}
+
+.dz-feat {
+  margin: 0;
+  font-size: 11.5px; color: var(--text-dim);
   font-variant: small-caps; letter-spacing: 2.5px;
+  opacity: 0.85;
   transition: color 250ms var(--ease);
 }
-#dropzone:hover .dz-hint { color: var(--text); }
+#dropzone:hover .dz-feat { color: var(--text); }
 
 /* cross-fade out once the reader takes over */
 #dropzone.fade-out { opacity: 0; transition: opacity 280ms var(--ease); }
@@ -541,6 +619,44 @@ html.half-mode .half-strip canvas { display: block; width: 100%; height: auto; }
   .glow.g1 { animation: breathe-a 11s var(--ease) infinite; }
   .glow.g2 { animation: breathe-b 14s var(--ease) infinite; }
   .glow.g3 { animation: breathe-c 17s var(--ease) infinite; }
+  .spotlight { animation: breathe-b 19s var(--ease) infinite; }
+
+  /* hero entrance — one-shot staggered rise. Keyframes end at the natural
+   * state with `backwards` fill, so nothing is held once each run completes. */
+  @keyframes dz-rise { from { opacity: 0; translate: 0 16px; }
+                       to { opacity: 1; translate: 0 0; } }
+  .dz-headline { animation: dz-rise 700ms var(--ease) 40ms backwards; }
+  .dz-sub { animation: dz-rise 700ms var(--ease) 140ms backwards; }
+  /* the book itself can't fade (opacity < 1 would flatten its preserve-3d),
+   * so its faces rise instead; their `translate` composes with the float below */
+  .book-closed .bc-page,
+  .book-closed .bc-cover,
+  .book-closed::before,
+  .book-closed::after { animation: dz-rise 700ms var(--ease) 200ms backwards; }
+  .dz-actions { animation: dz-rise 700ms var(--ease) 320ms backwards; }
+  .dz-feat { animation: dz-rise 700ms var(--ease) 420ms backwards; }
+
+  /* idle float — animates `translate` (not `transform`) so the hover tilt
+   * transition on .book-closed keeps working alongside it */
+  @keyframes book-float { 0%,100% { translate: 0 0; } 50% { translate: 0 -6px; } }
+  .book-closed { animation: book-float 6s ease-in-out infinite; }
+
+  /* ground shadow softens in counterphase as the book rises */
+  @keyframes dz-rise-shadow { from { opacity: 0; translate: 0 10px; }
+                              to { opacity: 0.55; translate: 0 0; } }
+  @keyframes shadow-breathe { 0%,100% { transform: scaleX(1); opacity: 0.55; }
+                              50% { transform: scaleX(0.92); opacity: 0.42; } }
+  .bc-shadow {
+    animation: dz-rise-shadow 700ms var(--ease) 200ms backwards,
+               shadow-breathe 6s ease-in-out 900ms infinite;  /* starts after the rise */
+  }
+
+  /* specular sheen sweeps the cover on hover */
+  @keyframes cover-sheen { from { transform: translateX(-130%); }
+                           to { transform: translateX(130%); } }
+  #dropzone:hover .bc-cover::before {
+    animation: cover-sheen 1100ms var(--ease) 180ms both;
+  }
 
   @keyframes mote-drift-1 {
     0% { transform: translate3d(0,0,0); opacity: 0.55; }
@@ -569,6 +685,7 @@ html.half-mode .half-strip canvas { display: block; width: 100%; height: auto; }
 @media (prefers-reduced-motion: reduce) {
   /* keep static gradients; swap cover swing for a plain cross-fade */
   .book-closed, .bc-cover, #dropzone.fade-out { transition: opacity 280ms var(--ease); }
-  .rain, .motes, .glow { animation: none; }
+  .rain, .motes, .glow, .spotlight, .bc-shadow,
+  .dz-headline, .dz-sub, .dz-actions, .dz-feat { animation: none; }
   #dropzone:hover .book-closed { transform: rotateY(-10deg); }
 }
