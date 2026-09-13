@@ -26,7 +26,10 @@
  *     onDwellToggle() once, then requires an unpinch. Moving out of the
  *     button resets the dwell; dragging never starts while inside it.
  *   - PINCH-PAN (half mode): when canPan() is true, a pinch-grab becomes a
- *     scroll instead of a page turn — onPanStart/onPanMove/onPanEnd.
+ *     scroll instead of a page turn — onPanStart/onPanMove/onPanEnd. Holding
+ *     the pointer within PAN_EDGE_MARGIN of the screen's top/bottom edge
+ *     keeps auto-scrolling that direction, ramping with how deep into the
+ *     margin the pointer sits, even once the hand itself stops moving.
  *
  * One gesture owns the frame: pan/dwell only run from the grabbing state.
  */
@@ -54,6 +57,8 @@ const PALM_HOLD_MS = 1000;    // open palm held → show controls
 const DWELL_MS = 2000;        // pinch-hold on the toggle button before it fires (lower = faster)
 const DWELL_PAD = 44;         // px of slack around the button that still counts as "on it"
 const PAN_GAIN = 2.4;         // page pans this multiple of hand movement (higher = faster pan)
+const PAN_EDGE_MARGIN = 90;   // px from top/bottom of the screen that triggers pan auto-scroll
+const PAN_EDGE_SPEED = 22;    // max auto-scroll px/frame at the very edge (scales 0..1 with depth)
 
 const ENABLE_ZOOM = false;    // legacy single-hand pinch/spread zoom (dormant)
 const PINCH_IN = 0.30;        // (zoom, dormant) ratio for zoom-in
@@ -257,8 +262,19 @@ export class GestureEngine {
         this.cb.onStatus("pan released");
       } else {
         const dxpx = (tipX - this.panX) * PAN_GAIN;
-        const dypx = (tipY - this.panY) * PAN_GAIN;
+        let dypx = (tipY - this.panY) * PAN_GAIN;
         this.panX = tipX; this.panY = tipY;
+        /* edge auto-scroll: holding the pointer near the top/bottom of the
+         * screen keeps scrolling that direction even once the hand itself
+         * stops, so reaching the edge doesn't cap how far a single pinch
+         * can scroll. Depth ramps 0..1 across the margin band. */
+        if (tipY < PAN_EDGE_MARGIN) {
+          const depth = (PAN_EDGE_MARGIN - tipY) / PAN_EDGE_MARGIN;
+          dypx -= depth * PAN_EDGE_SPEED;
+        } else if (tipY > window.innerHeight - PAN_EDGE_MARGIN) {
+          const depth = (tipY - (window.innerHeight - PAN_EDGE_MARGIN)) / PAN_EDGE_MARGIN;
+          dypx += depth * PAN_EDGE_SPEED;
+        }
         if (this.cb.onPanMove) this.cb.onPanMove(-dxpx, dypx);  // drag content, not viewport
       }
       return;
