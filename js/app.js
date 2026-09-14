@@ -4,7 +4,8 @@
 import { Book } from "./book.js";
 import { GestureEngine } from "./gestures.js";
 import { initThemePicker, playCoverOpen } from "./theme.js";
-import { savePdf, loadPdf, clearPdf } from "./storage.js";
+import { savePdf, loadPdf, clearPdf,
+         saveLibraryEntry, listLibrary, touchLibraryPosition, deleteLibraryEntry } from "./storage.js";
 
 const pdfjsLib = window.pdfjsLib;
 if (pdfjsLib) {
@@ -32,6 +33,9 @@ const modeFab = $("mode-fab");
 const pageJumpInput = $("page-jump-input");
 const tocToggle = $("toc-toggle");
 const tocPanel = $("toc-panel");
+const openPdfBtn = $("open-pdf-btn");
+const libraryToggle = $("library-toggle");
+const libraryPanel = $("library-panel");
 
 const SESSION_KEY = "gesturebook:session";
 const MODE_KEY = "gesturebook:mode";
@@ -41,6 +45,9 @@ let zoomIdx = 0;
 let currentName = null;
 let pillTimer = null;
 let idleTimer = null;
+
+const canPickHandle = "showOpenFilePicker" in window;
+let pendingResume = null;   // library entry awaiting a manual re-pick (no/failed handle)
 
 /* ---------- book ---------- */
 
@@ -58,6 +65,7 @@ const book = new Book({
           JSON.stringify({ name: currentName, spread, numPages,
                            mode: book.readMode, page: book.page }));
       } catch (_) { /* storage unavailable — non-fatal */ }
+      touchLibraryPosition(currentName, { spread, page: book.page, mode: book.readMode });
     }
   },
 });
@@ -112,12 +120,34 @@ async function openFile(file) {
   return openBuffer(file.name, await file.arrayBuffer());
 }
 
-async function openBuffer(name, buf, { isRestore = false } = {}) {
+/* Opens a file picker (File System Access API when supported, so we get back
+ * a persistable handle instead of a one-shot File) and opens whatever comes
+ * back. Falls back to the classic hidden <input type=file> in browsers that
+ * don't support showOpenFilePicker. */
+async function pickAndOpen() {
+  if (canPickHandle) {
+    let handle;
+    try {
+      [handle] = await window.showOpenFilePicker({
+        types: [{ description: "PDF", accept: { "application/pdf": [".pdf"] } }],
+      });
+    } catch (_) {
+      return;   // user cancelled — don't also fall back to the classic input
+    }
+    const file = await handle.getFile();
+    return openBuffer(file.name, await file.arrayBuffer(), { handle });
+  }
+  fileInput.click();
+}
+
+async function openBuffer(name, buf, { isRestore = false, handle = null, resumePosition = null } = {}) {
   let coverDone = Promise.resolve();
-  const savedMode = preferredMode();
   try {
     coverDone = playCoverOpen(dropzone);     // v3: cover swings while PDF parses
-    showLoading(isRestore ? `Resuming ${name}…` : `Opening ${name}…`);
+    showLoading(isRestore || resumePosition ? `Resuming ${name}…` : `Opening ${name}…`);
+    // PDF.js transfers `buf` to its worker (detaching the ArrayBuffer), so keep
+    // a copy for the IndexedDB cache before handing it over.
+    const storable = buf.slice(0);
     const task = pdfjsLib.getDocument({
       data: buf,
       onProgress: ({ loaded, total }) => {
@@ -130,9 +160,18 @@ async function openBuffer(name, buf, { isRestore = false } = {}) {
     });
     const pdfDoc = await task.promise;
 
+    // a library row without its own handle (or with a stale one) falls back
+    // to a manual re-pick — recognize it here once we know numPages match
+    if (!resumePosition && pendingResume && pendingResume.name === name &&
+        pendingResume.numPages === pdfDoc.numPages) {
+      resumePosition = pendingResume;
+    }
+    pendingResume = null;
+    const savedMode = resumePosition ? (resumePosition.mode || "book") : preferredMode();
+
     currentName = name;
     zoomIdx = 0;
-    if (!isRestore) savePdf(name, buf);
+    if (!isRestore) savePdf(name, storable);
     await coverDone;                          // let the cover finish its swing
     dropzone.classList.add("fade-out");       // short cross-fade to reader
     bookEl.classList.remove("hidden");
@@ -140,14 +179,20 @@ async function openBuffer(name, buf, { isRestore = false } = {}) {
 
     let restored = 0;
     let restoredPage = 0;
-    try {
-      const saved = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
-      if (saved && saved.name === name && saved.numPages === pdfDoc.numPages) {
-        const maxSpread = Math.max(0, pdfDoc.numPages - 2);
-        restored = Math.min(saved.spread | 0, maxSpread);
-        restoredPage = Math.min(saved.page | 0 || 1, pdfDoc.numPages);
-      }
-    } catch (_) { /* corrupt session — start fresh */ }
+    if (resumePosition) {
+      const maxSpread = Math.max(0, pdfDoc.numPages - 2);
+      restored = Math.min(resumePosition.spread | 0, maxSpread);
+      restoredPage = Math.min(resumePosition.page | 0 || 1, pdfDoc.numPages);
+    } else {
+      try {
+        const saved = JSON.parse(localStorage.getItem(SESSION_KEY) || "null");
+        if (saved && saved.name === name && saved.numPages === pdfDoc.numPages) {
+          const maxSpread = Math.max(0, pdfDoc.numPages - 2);
+          restored = Math.min(saved.spread | 0, maxSpread);
+          restoredPage = Math.min(saved.page | 0 || 1, pdfDoc.numPages);
+        }
+      } catch (_) { /* corrupt session — start fresh */ }
+    }
 
     await book.setDocument(pdfDoc);
     const restoringReader = savedMode === "single" || savedMode === "half";
@@ -172,6 +217,13 @@ async function openBuffer(name, buf, { isRestore = false } = {}) {
     } else {
       setStatus(`opened ${name} \u00b7 ${pdfDoc.numPages} pages`);
     }
+
+    const libEntry = { name, numPages: pdfDoc.numPages, spread: book.spread,
+                        page: book.page, mode: book.readMode, savedAt: Date.now() };
+    if (handle) libEntry.handle = handle;   // omit rather than clobber a previously-saved one
+    saveLibraryEntry(libEntry);
+    renderLibrary();
+
     hint.classList.remove("fade");
     setTimeout(() => hint.classList.add("fade"), 9000);
     wakeChrome();
@@ -193,7 +245,8 @@ async function openBuffer(name, buf, { isRestore = false } = {}) {
 fileInput.addEventListener("change", () => {
   if (fileInput.files && fileInput.files[0]) openFile(fileInput.files[0]);
 });
-dropzone.addEventListener("click", () => fileInput.click());
+if (openPdfBtn) openPdfBtn.addEventListener("click", pickAndOpen);
+dropzone.addEventListener("click", pickAndOpen);
 
 /* drag & drop with full-screen overlay */
 let dragDepth = 0;
@@ -205,10 +258,23 @@ window.addEventListener("dragover", (e) => e.preventDefault());
 window.addEventListener("dragleave", () => {
   if (--dragDepth <= 0) { dragDepth = 0; dropOverlay.classList.add("hidden"); }
 });
-window.addEventListener("drop", (e) => {
+window.addEventListener("drop", async (e) => {
   e.preventDefault();
   dragDepth = 0;
   dropOverlay.classList.add("hidden");
+  const item = e.dataTransfer.items && e.dataTransfer.items[0];
+  let handle = null;
+  if (item && item.getAsFileSystemHandle) {
+    try {
+      const h = await item.getAsFileSystemHandle();
+      if (h && h.kind === "file") handle = h;
+    } catch (_) { /* fall back to plain File below */ }
+  }
+  if (handle) {
+    const file = await handle.getFile();
+    openBuffer(file.name, await file.arrayBuffer(), { handle });
+    return;
+  }
   const f = e.dataTransfer.files && e.dataTransfer.files[0];
   if (f) openFile(f);
 });
@@ -256,6 +322,87 @@ if (pageJumpInput) {
     }
   });
   pageJumpInput.addEventListener("blur", closePageJump);
+}
+
+/* ---------- library: recent PDFs, linked (not copied) ---------- */
+
+function relativeTime(ts) {
+  if (!ts) return "";
+  const min = Math.round((Date.now() - ts) / 60000);
+  if (min < 1) return "just now";
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  return `${Math.round(hr / 24)}d ago`;
+}
+
+async function renderLibrary() {
+  if (!libraryPanel || !libraryToggle) return;
+  const entries = await listLibrary();
+  libraryToggle.classList.toggle("hidden", entries.length === 0);
+  libraryPanel.replaceChildren();
+  const ul = document.createElement("ul");
+  for (const entry of entries) {
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "lib-row";
+    btn.setAttribute("role", "menuitem");
+    const nameEl = document.createElement("span");
+    nameEl.className = "lib-name";
+    nameEl.textContent = entry.name;
+    const subEl = document.createElement("span");
+    subEl.className = "lib-sub";
+    subEl.textContent = `page ${entry.page || 1} of ${entry.numPages} · ${relativeTime(entry.savedAt)}`;
+    btn.appendChild(nameEl);
+    btn.appendChild(subEl);
+    btn.addEventListener("click", () => {
+      libraryPanel.classList.add("hidden");
+      libraryToggle.setAttribute("aria-expanded", "false");
+      resumeLibraryEntry(entry);
+    });
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "lib-remove";
+    del.title = "Remove from library";
+    del.setAttribute("aria-label", `Remove ${entry.name} from library`);
+    del.textContent = "×";
+    del.addEventListener("click", (e) => {
+      e.stopPropagation();
+      deleteLibraryEntry(entry.name).then(renderLibrary);
+    });
+    li.appendChild(btn);
+    li.appendChild(del);
+    ul.appendChild(li);
+  }
+  libraryPanel.appendChild(ul);
+}
+
+async function resumeLibraryEntry(entry) {
+  if (entry.handle) {
+    try {
+      let perm = await entry.handle.queryPermission({ mode: "read" });
+      if (perm !== "granted") perm = await entry.handle.requestPermission({ mode: "read" });
+      if (perm === "granted") {
+        const file = await entry.handle.getFile();
+        await openBuffer(file.name, await file.arrayBuffer(),
+          { handle: entry.handle, resumePosition: entry });
+        return;
+      }
+    } catch (_) { /* file moved/deleted/denied — fall through to a manual re-pick */ }
+  }
+  pendingResume = entry;
+  setStatus(`locate "${entry.name}" to resume`);
+  pickAndOpen();
+}
+
+if (libraryToggle && libraryPanel) {
+  libraryToggle.addEventListener("click", () => {
+    const opening = libraryPanel.classList.contains("hidden");
+    if (opening) renderLibrary();
+    libraryPanel.classList.toggle("hidden", !opening);
+    libraryToggle.setAttribute("aria-expanded", String(opening));
+  });
 }
 
 /* ---------- table of contents (PDF outline, when present) ---------- */
@@ -411,6 +558,7 @@ camToggle.addEventListener("click", async () => {
 });
 
 (async () => {
+  renderLibrary();
   const record = await loadPdf();
   if (record && record.bytes) {
     await openBuffer(record.name, record.bytes, { isRestore: true });

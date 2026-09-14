@@ -29,11 +29,12 @@
     </svg>
     <h1>GestureBook</h1>
   </div>
-  <label class="btn quiet" for="pdf-file">Open PDF</label>
+  <button type="button" class="btn quiet" id="open-pdf-btn">Open PDF</button>
   <input type="file" id="pdf-file" accept="application/pdf" hidden>
   <button class="btn quiet" id="cam-toggle">Start camera</button>
   <button class="btn quiet" id="mode-toggle" aria-pressed="false" title="Cycle Book / Read / Half-page view (or press S)">Read view</button>
   <button class="btn quiet hidden" id="toc-toggle" aria-haspopup="true" aria-expanded="false" title="Table of contents">Contents</button>
+  <button class="btn quiet hidden" id="library-toggle" aria-haspopup="true" aria-expanded="false" title="Recent PDFs">Library</button>
   <div class="theme-picker" id="theme-picker" role="group" aria-label="Reading-room theme">
     <button class="theme-opt" data-set-theme="classic" aria-pressed="true" title="Classic charcoal">Classic</button>
     <button class="theme-opt" data-set-theme="seattle" aria-pressed="false" title="Seattle rain">Seattle</button>
@@ -44,6 +45,7 @@
 </header>
 
 <div id="toc-panel" class="hidden" role="menu" aria-label="Table of contents"></div>
+<div id="library-panel" class="hidden" role="menu" aria-label="Recent PDFs"></div>
 
 <main id="stage">
 

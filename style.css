@@ -142,6 +142,30 @@ body {
 }
 #toc-panel button:hover { color: var(--text); background: rgba(255,255,255,0.08); }
 
+/* ---------- library (recent PDFs) panel ---------- */
+#library-panel {
+  position: fixed; top: 56px; right: 20px; z-index: 45;
+  max-width: min(320px, calc(100vw - 40px)); max-height: 60vh; overflow-y: auto;
+  background: var(--pill); border: 1px solid var(--line); border-radius: 12px;
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  padding: 8px; box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+}
+#library-panel ul { list-style: none; margin: 0; padding: 0; }
+#library-panel li { display: flex; align-items: center; gap: 2px; }
+#library-panel button.lib-row {
+  flex: 1; display: block; width: 100%; text-align: left; appearance: none; background: none;
+  border: 0; color: var(--text-dim); font: inherit; font-size: 13px; padding: 6px 10px;
+  border-radius: 6px; cursor: pointer;
+}
+#library-panel button.lib-row:hover { color: var(--text); background: rgba(255,255,255,0.08); }
+#library-panel .lib-name { display: block; }
+#library-panel .lib-sub { display: block; font-size: 11px; opacity: 0.75; margin-top: 2px; }
+#library-panel .lib-remove {
+  appearance: none; background: none; border: 0; color: var(--text-dim); cursor: pointer;
+  font-size: 15px; line-height: 1; padding: 6px 8px; border-radius: 6px; flex-shrink: 0;
+}
+#library-panel .lib-remove:hover { color: var(--text); background: rgba(255,255,255,0.08); }
+
 /* theme picker — small, quiet, sits with the buttons */
 .theme-picker {
   display: flex; align-items: center; gap: 2px;

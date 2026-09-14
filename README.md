@@ -68,6 +68,13 @@ resumes — reloading the page reopens it at the same page/spread and view mode 
 no clicks needed. If storage is unavailable, it falls back to the old behavior of
 remembering position/mode only, applied when you manually reopen the same file.
 
+A **Library** button keeps your 6 most recent PDFs (with per-book page position),
+so you can switch between books without re-finding them on disk. Entries link back
+to the original file via the File System Access API when the browser supports it —
+the first reopen asks for read permission, and if the file was moved/deleted
+GestureBook asks you to locate it once and then re-links automatically. Books
+opened by plain file-picker or drag-and-drop (no handle) re-prompt the same way.
+
 Click the page counter to type a page number and jump straight to it, in any view
 mode. PDFs with bookmarks show a Contents button next to it; clicking an entry
 jumps to that page. A reading-progress percentage is shown alongside the page
